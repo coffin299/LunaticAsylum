@@ -1,0 +1,42 @@
+【LunaticAsylum】サーバーの置き方
+
+この Servers フォルダの直下に、好きな名前のフォルダを作り、
+その中にゲームサーバー本体を入れてください。
+
+例:
+  Servers\メイン鯖\          ← フォルダ名は自由
+  Servers\event-pal\
+
+LunaticAsylum はフォルダ名ではなく、中にある実行ファイル（例: PalServer.exe）を見て
+どのゲームのサーバーかを判定します。
+
+Palworld:
+- アプリの「新規サーバー」から SteamCMD で自動インストールできます
+- すでに用意済みのサーバーフォルダをここに置いても検出されます
+
+セーブデータの移行などは、同梱ドキュメント（docs）または README の
+「Palworld セーブ移行」を参照してください。
+
+このファイル（HOW_TO_ADD_SERVERS.txt）は削除しても構いません。
+
+========================================
+
+[LunaticAsylum] How to add servers
+
+Create a folder with any name directly under this Servers directory,
+and put the game server files inside it.
+
+Examples:
+  Servers\main\
+  Servers\event-pal\
+
+LunaticAsylum detects the game type from executables inside the folder
+(e.g. PalServer.exe), not from the folder name.
+
+Palworld:
+- Use "New server" in the app to install automatically via SteamCMD
+- Or drop an existing server folder here to detect it
+
+For save migration, see the README / docs section "Palworld save migration".
+
+You can delete this file (HOW_TO_ADD_SERVERS.txt) if you want.

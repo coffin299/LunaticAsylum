@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag without v prefix (e.g. 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend deps
+        run: pnpm install
+
+      - name: Build Tauri (Windows)
+        working-directory: apps/desktop
+        run: pnpm tauri build
+        env:
+          # SignPath secrets arrive after Foundation approval
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Stage portable zip contents
+        shell: pwsh
+        run: |
+          $stage = "dist-portable/LunaticAsylum"
+          New-Item -ItemType Directory -Force -Path "$stage/Servers" | Out-Null
+          Copy-Item "apps/desktop/src-tauri/resources/HOW_TO_ADD_SERVERS.txt" "$stage/Servers/"
+          # Prefer release exe from target
+          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release" -Filter "LunaticAsylum.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            throw "LunaticAsylum.exe not found in release output"
+          }
+          Copy-Item $exe.FullName $stage/
+          # Copy adjacent DLL/resources if present next to exe
+          Get-ChildItem $exe.DirectoryName -File | Where-Object { $_.Name -ne $exe.Name -and $_.Extension -in ".dll",".pdb" } | ForEach-Object {
+            Copy-Item $_.FullName $stage/
+          }
+          Compress-Archive -Path "dist-portable/LunaticAsylum" -DestinationPath "LunaticAsylum-windows-x64.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunaticAsylum-windows-x64
+          path: LunaticAsylum-windows-x64.zip
+
+      # TODO: SignPath — not configured yet; ship unsigned portable ZIP for now
+      # Enable signing only after Foundation approval + secrets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.tag) }}
+          files: LunaticAsylum-windows-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

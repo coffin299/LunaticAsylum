@@ -1,0 +1,9 @@
+{
+  "name": "@lunatic-asylum/webpage",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "npx --yes serve . -p 4177",
+    "build": "node -e \"console.log('static site; copy index.html for Pages')\""
+  }
+}

@@ -1,0 +1,322 @@
+---
+description: Persistent context and agent handoff workflow for long-running development
+alwaysApply: true
+---
+
+# AI Agent Context Management
+
+LunaticAsylum is developed across multiple AI coding agents and sessions.
+
+Do not rely on conversation history as the sole source of project context. Persistent project state must be maintained in `.cursor/context/`.
+
+## Context Files
+
+```text
+.cursor/
+├── rules/
+│   ├── architecture.mdc
+│   ├── security.mdc
+│   ├── workflow.mdc
+│   ├── react.mdc
+│   └── rust.mdc
+│
+└── context/
+    ├── CURRENT.md
+    ├── HANDOFF.md
+    ├── TODO.md
+    ├── DECISIONS.md
+    └── HISTORY.md
+```
+
+## Rule Applicability
+
+Use the following applicability model:
+
+| Rule | Applicability |
+|---|---|
+| `architecture.mdc` | Always |
+| `security.mdc` | Always |
+| `workflow.mdc` | Always |
+| `react.mdc` | Auto Attached |
+| `rust.mdc` | Auto Attached |
+
+### Always Rules
+
+The following rules are foundational and should always be applied:
+
+- `architecture.mdc`
+- `security.mdc`
+- `workflow.mdc`
+
+Keep Always rules concise. Do not put detailed framework-specific implementation guidance into them unless it is genuinely global.
+
+### Auto Attached Rules
+
+Framework- and language-specific rules should be attached only when relevant:
+
+- `react.mdc` → React / TypeScript / frontend-related work
+- `rust.mdc` → Rust / Tauri / backend-related work
+
+Do not unnecessarily apply framework-specific rules to unrelated tasks.
+
+---
+
+# Context File Responsibilities
+
+## CURRENT.md
+
+The authoritative summary of the current project state.
+
+Keep this file short.
+
+It should contain:
+
+- Current phase
+- Current objective
+- Current task
+- Completed work
+- Work in progress
+- Blockers
+- Immediate next steps
+
+Do not put verbose history into this file.
+
+## HANDOFF.md
+
+The primary handoff document for the next coding agent.
+
+At the end of a meaningful work session, update it with:
+
+- What was implemented
+- Files/components changed
+- Current state
+- Important discoveries
+- Problems encountered
+- Decisions made during the session
+- Recommended next task
+- Things the next agent must not repeat or break
+
+Keep it concise and actionable.
+
+## TODO.md
+
+Persistent project task list.
+
+Use it for:
+
+- Planned features
+- Bugs
+- Technical debt
+- Follow-up work
+- Future ideas
+
+Do not automatically implement unrelated TODO items.
+
+Prioritize the current task specified by `CURRENT.md` or the user's request.
+
+## DECISIONS.md
+
+Record important architectural decisions and their rationale.
+
+Examples:
+
+- Why a component is placed in `core` vs `providers`
+- Why Discord is an Integration rather than a Provider
+- Why a particular secret-storage strategy is used
+- Why a particular API or library was selected
+
+Do not record trivial implementation details.
+
+## HISTORY.md
+
+Longer-term summarized development history.
+
+Use this for significant historical context that should survive across sessions.
+
+Do not append raw conversation transcripts, chain-of-thought, or verbose step-by-step logs.
+
+Summarize meaningful changes instead.
+
+---
+
+# Session Start
+
+Before starting a non-trivial task:
+
+1. Read `.cursor/context/CURRENT.md`.
+2. Read the relevant files under `.cursor/rules/`.
+3. Read `.cursor/context/HANDOFF.md` when continuing work from another agent/session.
+4. Read `.cursor/context/DECISIONS.md` when making or modifying architectural decisions.
+5. Read `.cursor/context/TODO.md` when planning or selecting project work.
+6. Do not read the entire `HISTORY.md` by default.
+
+Only load historical context when it is actually relevant to the current task.
+
+Do not unnecessarily load every context file into the model context.
+
+---
+
+# During Work
+
+When making decisions that materially affect the architecture:
+
+1. Check `DECISIONS.md` for existing decisions.
+2. Follow existing decisions unless there is a concrete reason to change them.
+3. If changing an existing decision, update `DECISIONS.md` and explain the reason.
+
+When discovering an important implementation fact that another agent would need to know:
+
+- Record it in `HANDOFF.md`.
+- If it is a durable architectural fact, also record it in `DECISIONS.md`.
+
+Do not store temporary debugging noise as persistent context.
+
+---
+
+# Session End
+
+Before considering a meaningful task complete:
+
+1. Update `CURRENT.md`.
+2. Update `TODO.md` if task status changed.
+3. Update `HANDOFF.md`.
+4. Update `DECISIONS.md` if an architectural decision was made.
+5. Add a concise entry to `HISTORY.md` only for meaningful completed work or discoveries.
+
+The handoff must describe the actual current repository state, not the intended state.
+
+If implementation is incomplete, explicitly state:
+
+```text
+Status: In Progress
+```
+
+and explain what remains.
+
+If blocked, explicitly state:
+
+```text
+Status: Blocked
+```
+
+and describe the blocker.
+
+Never claim a task is complete if it has not been verified.
+
+---
+
+# Context Quality Rules
+
+Persistent context must be:
+
+- concise
+- factual
+- actionable
+- current
+- free of duplicated information
+- free of conversational filler
+
+Do not copy entire source files into context documents.
+
+Do not copy terminal output unless the exact output is important for future debugging.
+
+Do not store chain-of-thought or private reasoning.
+
+Prefer:
+
+```text
+SteamCMD `app_info_print` does not produce usable AppInfo output in the current environment.
+```
+
+over:
+
+```text
+I tried X, then I thought maybe Y, then I wondered whether...
+```
+
+Prefer durable facts over narratives.
+
+---
+
+# Prevent Context Bloat
+
+When a context file becomes large:
+
+1. Keep the current state in `CURRENT.md`.
+2. Move completed historical information into `HISTORY.md`.
+3. Remove obsolete information.
+4. Consolidate duplicate decisions in `DECISIONS.md`.
+5. Keep `HANDOFF.md` focused on the latest handoff.
+6. Never solve context growth by making every agent read more files.
+
+The goal is persistent knowledge with minimal per-session context cost.
+
+---
+
+# Conflict Resolution
+
+When information conflicts:
+
+1. Current repository code is authoritative for implementation state.
+2. User instructions are authoritative for current goals.
+3. `CURRENT.md` is authoritative for intended current work.
+4. `DECISIONS.md` is authoritative for recorded architectural decisions.
+5. `HISTORY.md` is historical reference only.
+6. `HANDOFF.md` describes the previous session and may become stale.
+
+If persistent context contradicts the actual code, update the context rather than blindly following stale information.
+
+---
+
+# Agent Handoff Format
+
+Use this structure for `HANDOFF.md`:
+
+```md
+# Agent Handoff
+
+## Status
+In Progress | Complete | Blocked
+
+## What Changed
+- ...
+
+## Files Changed
+- ...
+
+## Current State
+- ...
+
+## Important Discoveries
+- ...
+
+## Decisions
+- ...
+
+## Known Issues
+- ...
+
+## Next Task
+- ...
+
+## Do Not
+- ...
+```
+
+Keep each section concise.
+
+---
+
+# General Principle
+
+The purpose of this system is not to preserve every detail of previous AI conversations.
+
+The purpose is to preserve the minimum durable context required for the next agent to continue development correctly.
+
+When in doubt:
+
+```text
+Current state > handoff > decisions > todo > history
+```
+
+Verify persistent context against the actual repository before making significant changes.

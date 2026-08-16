@@ -1,0 +1,713 @@
+---
+description: Security requirements for LunaticAsylum
+alwaysApply: true
+---
+
+# LunaticAsylum Security Rules
+
+These rules are mandatory security requirements for LunaticAsylum.
+
+## 1. Trust Boundaries
+
+Treat all of the following as untrusted input:
+
+- React frontend input
+- game server output
+- server configuration files
+- save data
+- Discord usernames, messages, roles, and events
+- HTTP API responses
+- archive contents
+- player names and chat messages
+- data imported from external tools
+
+The Rust backend is the primary privileged boundary.
+
+Never rely on frontend validation for authorization or security.
+
+---
+
+## 2. Tauri Security
+
+Use Tauri 2 capabilities and permissions with least privilege.
+
+Do not grant broad permissions unless explicitly required.
+
+Avoid:
+
+- unrestricted shell execution
+- unrestricted filesystem access
+- arbitrary URL access
+- arbitrary process spawning
+
+Every Tauri command must:
+
+1. validate all arguments;
+2. perform authorization/capability checks in Rust;
+3. reject unexpected paths, IDs, and commands;
+4. return safe errors without leaking secrets.
+
+Prefer specific commands such as:
+
+```text
+restart_server(server_id)
+create_backup(server_id)
+send_console_command(server_id, command)
+```
+
+over generic commands such as:
+
+```text
+execute(command)
+```
+
+Never let the frontend execute arbitrary OS commands.
+
+---
+
+## 3. Secrets
+
+Never store secrets in:
+
+- React state longer than necessary
+- localStorage
+- sessionStorage
+- IndexedDB
+- URLs
+- query strings
+- Vite `VITE_*` variables
+- source code
+- Git
+- logs
+
+Examples:
+
+- Discord bot tokens
+- Palworld admin passwords
+- RCON passwords
+- API keys
+- webhook URLs
+- signing credentials
+- private keys
+
+### Recoverable secrets
+
+Secrets that must later be sent to an external service should use OS-backed secure storage where possible.
+
+Examples:
+
+- Discord bot token
+- Palworld admin password
+- RCON password
+
+Do not invent a custom encryption scheme.
+
+### Verification-only secrets
+
+Secrets that only need to be verified should not be stored in recoverable form.
+
+For generated API keys:
+
+```text
+generate random secret
+        |
+        +--> show plaintext once
+        |
+        +--> store verifier/hash
+```
+
+Provide per-key:
+
+- identifier
+- scopes
+- created_at
+- last_used_at
+- expiration
+- revocation
+
+Never log the secret portion.
+
+### Passwords
+
+For user-chosen passwords:
+
+- never store plaintext;
+- never use Base64 as protection;
+- never use plain SHA-256;
+- use Argon2id or another password-specific password hashing scheme;
+- use a unique salt per password.
+
+---
+
+## 4. Frontend Security
+
+Anything shipped to the Vite frontend is effectively visible to the local user.
+
+Never put credentials or encryption keys in frontend code or environment variables.
+
+The frontend may request an operation, but the Rust backend must decide whether the operation is allowed.
+
+Do not use:
+
+```text
+UI button visibility == authorization
+```
+
+Authorization must be enforced server-side.
+
+Avoid `dangerouslySetInnerHTML`.
+
+Treat these as untrusted:
+
+- player names
+- server names
+- Discord content
+- game chat
+- console output
+- mod metadata
+
+If HTML or Markdown rendering is added, use a strict sanitizer/allowlist.
+
+---
+
+## 5. HTTP / ureq
+
+Use HTTPS for authenticated external APIs.
+
+Never disable TLS certificate verification in production.
+
+All network requests must have bounded timeouts.
+
+Apply appropriate limits for:
+
+- connect time
+- request time
+- response size
+
+Do not put credentials in URL query parameters.
+
+Treat configurable remote URLs as SSRF-sensitive.
+
+When user-provided URLs are supported:
+
+- allow only explicitly supported schemes;
+- validate hosts;
+- reject unexpected schemes such as `file://`;
+- define whether localhost/private-network access is allowed;
+- validate redirects when relevant.
+
+---
+
+## 6. Discord Integration
+
+Discord bot tokens are high-value secrets.
+
+Never expose or log the bot token.
+
+Prefer OS-backed secure storage.
+
+Request only the Discord Gateway Intents actually required.
+
+Discord commands must have explicit authorization.
+
+Use a model similar to:
+
+```text
+Discord user
+  -> guild
+  -> role / user allowlist
+  -> command policy
+  -> server scope
+  -> operation
+```
+
+Dangerous commands such as:
+
+- stop
+- restart
+- console
+- configuration changes
+- backup deletion
+
+must require explicit permission.
+
+Treat Discord usernames, nicknames, messages, embeds, URLs, and role names as untrusted input.
+
+---
+
+## 7. Game Providers
+
+Game-specific credentials belong to the provider/integration that needs them.
+
+A provider must not automatically gain access to unrelated secrets.
+
+Do not place game credentials in Core types unless the Core genuinely needs them.
+
+Provider actions must use explicit capabilities.
+
+Example:
+
+```ts
+interface GameCapabilities {
+  console: boolean;
+  rcon: boolean;
+  playerList: boolean;
+  playerModeration: boolean;
+  metrics: boolean;
+  backups: boolean;
+  config: boolean;
+  saveParser: boolean;
+  map: boolean;
+}
+```
+
+Do not infer authorization from capability presence alone.
+
+---
+
+## 8. Process Execution
+
+Game servers and SteamCMD are external processes.
+
+Never execute arbitrary paths or commands supplied by the frontend.
+
+Prefer direct process execution with structured argument arrays.
+
+Avoid shell interpolation.
+
+Do not use:
+
+```text
+cmd.exe /c <user input>
+powershell -Command <user input>
+```
+
+for privileged operations.
+
+Validate:
+
+- executable path
+- working directory
+- arguments
+- environment variables
+
+Apply:
+
+- startup timeout
+- shutdown timeout
+- kill timeout
+- cancellation
+- output limits
+
+Do not put secrets into command-line arguments when an environment variable or secure mechanism is supported.
+
+---
+
+## 9. Console Commands
+
+Console commands are not the same thing as operating-system commands.
+
+A game console provider may expose:
+
+```text
+send_console_command(server_id, command)
+```
+
+but must never implicitly turn that into shell execution.
+
+Do not pass console commands through a system shell.
+
+Game-specific command restrictions should be implemented where practical.
+
+---
+
+## 10. Filesystem Security
+
+Never trust frontend-supplied filesystem paths.
+
+Validate and canonicalize paths.
+
+Reject unexpected:
+
+- `..`
+- absolute paths
+- UNC paths
+- Windows device paths
+- drive roots
+
+When a server root is configured, verify that the resolved target remains inside the allowed root.
+
+Never rely only on a string prefix check.
+
+Be aware of Windows reparse points, junctions, and symlinks.
+
+---
+
+## 11. ZIP / Archive Security
+
+ZIP extraction must protect against Zip Slip.
+
+For every archive entry:
+
+1. resolve the destination path;
+2. verify containment inside the extraction root;
+3. reject traversal;
+4. reject unexpected absolute paths;
+5. handle symlink/reparse behavior safely;
+6. apply file-count limits;
+7. apply total uncompressed-size limits.
+
+Never blindly extract an untrusted archive.
+
+Backup restoration is destructive and must require explicit target selection and validation.
+
+---
+
+## 12. Save Data / Game Data
+
+Treat game saves as untrusted binary data.
+
+Use defensive parsing.
+
+Protect against:
+
+- malformed structures
+- excessive nesting
+- excessive allocation
+- unexpectedly large files
+- unsupported schema versions
+
+If a save parser fails, degrade only the save-related feature.
+
+Do not crash or disable the entire server manager because a save file is malformed or unsupported.
+
+---
+
+## 13. JSON / serde
+
+All external JSON is untrusted.
+
+Deserialization is not equivalent to validation.
+
+Validate:
+
+- required fields
+- string lengths
+- numeric ranges
+- enum values
+- array lengths
+- resource limits
+
+Prefer typed `serde` structs over unrestricted `serde_json::Value`.
+
+---
+
+## 14. Base64
+
+Base64 is an encoding, not encryption.
+
+Never describe Base64 as protecting a secret.
+
+Do not use:
+
+```text
+base64(secret)
+```
+
+as a security mechanism.
+
+---
+
+## 15. Logging
+
+Never log:
+
+- passwords
+- tokens
+- API keys
+- cookies
+- Authorization headers
+- private keys
+- encryption keys
+- full webhook URLs containing secrets
+- environment variables containing secrets
+
+Be careful with:
+
+- game console commands
+- HTTP errors
+- Discord errors
+- child-process command lines
+
+Use redaction where necessary.
+
+Prefer structured logs:
+
+```text
+timestamp
+event
+actor
+server_id
+provider
+result
+request_id
+```
+
+Security events worth recording include:
+
+- authentication failure
+- authorization failure
+- API key creation
+- API key revocation
+- privileged operations
+- Discord authorization failures
+
+Never expose secrets through error messages.
+
+---
+
+## 16. Secret Redaction
+
+Use centralized redaction rather than relying on individual callers.
+
+Consider dedicated secret types such as:
+
+```rust
+struct SecretString(...);
+struct ApiKey(...);
+struct BotToken(...);
+```
+
+Do not implement `Debug` or `Display` in a way that prints plaintext secrets.
+
+---
+
+## 17. Authentication and Authorization
+
+Privileged backend operations must verify authorization independently.
+
+For example:
+
+```text
+restart_server(server_id)
+```
+
+must verify:
+
+1. the server exists;
+2. the caller is authorized for that server;
+3. the provider supports restart;
+4. the requested operation is valid.
+
+Do not rely only on localhost access, UI restrictions, or obscurity.
+
+---
+
+## 18. Remote Management
+
+Management APIs should be local-only by default.
+
+Prefer loopback binding.
+
+Do not expose management endpoints on `0.0.0.0` unless remote management is explicitly enabled.
+
+If remote management is introduced:
+
+- require explicit opt-in;
+- authenticate every request;
+- use TLS;
+- use scoped credentials;
+- apply rate limiting;
+- document exposed ports.
+
+---
+
+## 19. Update / SteamCMD
+
+SteamCMD should not become a generic command execution interface.
+
+Separate:
+
+```text
+SteamCmdClient
+UpdateChecker
+Provider
+```
+
+Build ID checking and update execution are separate operations.
+
+Do not parse Binary `appinfo.vdf` as UTF-8 text.
+
+Validate external AppInfo responses.
+
+Before updating a running server:
+
+```text
+stop
+  |
+update
+  |
+validate
+  |
+start
+```
+
+Never overwrite a live game installation.
+
+---
+
+## 20. Backups
+
+Backups may contain:
+
+- credentials
+- player data
+- private messages
+- server configurations
+- sensitive world data
+
+Treat backup files as sensitive.
+
+Do not expose backup contents to the frontend unnecessarily.
+
+Restore operations must be validated and auditable.
+
+Do not silently overwrite unrelated files.
+
+---
+
+## 21. CI / GitHub Actions
+
+Use least-privilege workflow permissions.
+
+Example baseline:
+
+```yaml
+permissions:
+  contents: read
+```
+
+Elevate permissions only for jobs that actually require them.
+
+For security-sensitive workflows:
+
+- pin third-party Actions to full commit SHAs;
+- keep signing/release jobs separate;
+- do not expose signing secrets to untrusted PRs;
+- never print secrets;
+- review dependency/action changes.
+
+Never commit signing keys or release credentials.
+
+---
+
+## 22. Code Signing
+
+Release binaries should be signed.
+
+Keep signing credentials outside the repository and outside normal build jobs where possible.
+
+Recommended flow:
+
+```text
+build
+  -> unsigned artifact
+  -> isolated signing step
+  -> signed artifact
+  -> release
+```
+
+The signing stage should have the narrowest possible permissions.
+
+---
+
+## 23. Dependencies
+
+Audit dependencies regularly.
+
+Recommended tooling:
+
+- `cargo audit`
+- `cargo deny`
+- `pnpm audit`
+- GitHub Dependabot/Renovate
+- secret scanning such as Gitleaks
+
+Pay special attention to dependencies that:
+
+- execute processes
+- parse archives
+- parse game saves
+- handle TLS
+- access the filesystem
+- interact with the OS
+
+Do not add a dependency that materially expands privileges without reviewing its security implications.
+
+---
+
+## 24. Fail Closed
+
+Security-sensitive failures should normally produce:
+
+```text
+deny operation
+preserve state
+return safe error
+```
+
+Examples:
+
+- invalid credentials -> deny
+- invalid path -> deny
+- invalid archive -> reject
+- certificate failure -> deny
+- unsupported save version -> disable save feature
+- unknown capability -> deny operation
+
+Do not silently downgrade security.
+
+---
+
+## 25. Security Review Checklist
+
+Before merging security-sensitive changes, verify:
+
+- [ ] Frontend input is validated in Rust.
+- [ ] Authorization is enforced in the backend.
+- [ ] No secret is stored in frontend storage.
+- [ ] No secret is logged.
+- [ ] Process execution is not shell-injected.
+- [ ] Filesystem paths are canonicalized and contained.
+- [ ] ZIP extraction prevents path traversal.
+- [ ] HTTP has TLS verification and timeouts.
+- [ ] External response sizes are bounded.
+- [ ] Discord commands have explicit authorization.
+- [ ] Game providers only access required secrets.
+- [ ] Save parsers handle malformed data safely.
+- [ ] New Tauri permissions are narrowly scoped.
+- [ ] New dependencies have been reviewed.
+- [ ] CI permissions are minimal.
+- [ ] Release/signing credentials are isolated.
+
+---
+
+# Non-Negotiable Rules
+
+1. Never store secrets in frontend storage.
+2. Never hard-code production credentials.
+3. Never log secrets.
+4. Never trust frontend authorization.
+5. Never expose unrestricted shell execution.
+6. Never extract ZIP archives without traversal protection.
+7. Never disable TLS certificate verification in production.
+8. Never use Base64 as encryption.
+9. Never use plain SHA-256 for user password storage.
+10. Never expose management APIs publicly by default.
+11. Never give Discord commands implicit administrative authority.
+12. Never let malformed save data crash the entire manager.
+13. Never let providers access unrelated secrets.
+14. Never expose signing secrets to untrusted CI code.
+15. Prefer reducing secret storage over inventing more encryption.
+
+When in doubt, prefer the design that reduces privileges, reduces secret lifetime, and reduces the amount of trusted input.

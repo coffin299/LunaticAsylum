@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+target/
+*.local
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+config.yaml
+
+# IDE / OS / Cursor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.cursor/plans/
+# rules/ と context/ は共有する（plans のみ除外）
+
+# Local working notes（公開 docs とは別）
+docs/dev/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs / caches
+*.log
+.turbo/
+.cache/
+
+# Tauri / Rust
+apps/desktop/src-tauri/target/
+
+# Local runtime (dev)
+Servers/
+tools/
+
+# Game saves / Oodle（誤コミット防止）
+*.sav
+**/SaveGames/
+oo2core*.dll
+oo2core*.so*
+libooz*

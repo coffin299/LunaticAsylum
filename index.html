@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LunaticAsylum</title>
+    <style>
+      :root {
+        --bg: #0c0c0e;
+        --text: #f4f4f5;
+        --muted: #a1a1aa;
+        --accent: #3b82f6;
+        --border: #27272a;
+        --font: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.55;
+      }
+      .hero {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 3rem 1.5rem;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: clamp(2.4rem, 6vw, 3.4rem);
+        letter-spacing: 0.02em;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        color: var(--muted);
+        margin: 0 0 1.5rem;
+        font-size: 1.05rem;
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      a.btn {
+        display: inline-block;
+        padding: 0.7rem 1.1rem;
+        border: 1px solid var(--border);
+        color: var(--text);
+        text-decoration: none;
+        background: #18181b;
+      }
+      a.btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      section {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 4rem;
+        border-top: 1px solid var(--border);
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 0 0 0.75rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <h1>LunaticAsylum</h1>
+      <p>
+        ゲームサーバー管理デスクトップアプリ。ZIP を展開して exe
+        を起動し、隣の Servers にフォルダを置くだけ。
+      </p>
+      <div class="cta">
+        <a
+          class="btn primary"
+          href="https://github.com/coffin299/LunaticAsylum/releases"
+          >Download</a
+        >
+        <a class="btn" href="https://github.com/coffin299/LunaticAsylum">GitHub</a>
+      </div>
+    </header>
+    <section>
+      <h2>使い方（要約）</h2>
+      <p>
+        1. Release のポータブル ZIP を展開<br />
+        2. LunaticAsylum.exe を起動<br />
+        3. Servers に任意名フォルダでサーバーを配置（または SteamCMD インストール）
+      </p>
+      <p lang="en">
+        Unzip the portable build, run LunaticAsylum.exe, and place freely named
+        server folders under Servers.
+      </p>
+    </section>
+  </body>
+</html>

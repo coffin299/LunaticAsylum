@@ -23,7 +23,7 @@ Discord は **ゲーム横断で再利用しない**。
 - GUI には中身を返さない（保存済みフラグのみ）。変更時だけ再入力
 - 開発者側 Token は使わない
 
-詳細: [`docs/security.md`](./security.md) / `.cursor/rules/security.mdc`（API キー / リモート管理等の将来項目は未実装）
+詳細: [`docs/security-adoption.md`](./security-adoption.md) / [`.github/SECURITY.md`](../.github/SECURITY.md)
 
 ## コマンド
 

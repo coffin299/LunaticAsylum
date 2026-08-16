@@ -13,7 +13,7 @@
 - **禁止**: cheahjs 0.24 Guild 直移植。write-back は Phase 1 外。
 
 ## Secrets / security
-- 正本: `.cursor/rules/security.mdc`（Always）。公開要約: `docs/security.md`。
+- 正本: `.cursor/rules/security.mdc`（Always）。公開ポリシー: `.github/SECURITY.md`。採用要約: `docs/security-adoption.md`。
 - Discord Token / REST password → OS Credential Store（`keyring`）。`config.json` に平文秘密を置かない。
 - 当面除外: リモート管理 API、多ユーザー、Argon2 ローカルユーザー、署名付き release。
 

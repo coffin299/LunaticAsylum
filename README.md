@@ -38,7 +38,8 @@ pnpm dev
 - [docs/architecture.md](docs/architecture.md)
 - [docs/provider-guide.md](docs/provider-guide.md)
 - [docs/discord.md](docs/discord.md)
-- [docs/security.md](docs/security.md)
+- [docs/security-adoption.md](docs/security-adoption.md)
+- [.github/SECURITY.md](.github/SECURITY.md)（脆弱性報告ポリシー）
 - [docs/code-signing.md](docs/code-signing.md)
 - [docs/palworld-save-migration.md](docs/palworld-save-migration.md)
 

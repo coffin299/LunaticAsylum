@@ -7,7 +7,7 @@
 | [architecture.md](./architecture.md) | レイヤ・Discovery・Backup・Update check |
 | [provider-guide.md](./provider-guide.md) | Provider 追加手順 |
 | [discord.md](./discord.md) | Discord（ゲーム専用）方針 |
-| [security.md](./security.md) | 秘密保管など採用済みセキュリティ |
+| [security-adoption.md](./security-adoption.md) | 採用済みセキュリティ要約（Policy は `.github/SECURITY.md`） |
 | [code-signing.md](./code-signing.md) | SignPath / 署名 |
 | [palworld-save-migration.md](./palworld-save-migration.md) | セーブ移行（日英） |
 

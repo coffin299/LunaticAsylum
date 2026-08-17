@@ -1,5 +1,15 @@
 # LunaticAsylum
 
+<div align="center">
+
+# 🚧 現在開発中です
+### 最低限の機能のみ実装しています。パフォーマンスは未最適化です。
+
+# 🚧 Currently in development
+### Only a minimum set of features is implemented. Performance is not optimized.
+
+</div>
+
 <p align="center">
   <a href="https://count.getloli.com/@LunaticAsylumServerManager">
     <img src="https://count.getloli.com/@LunaticAsylumServerManager?name=LunaticAsylumServerManager&theme=green&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=0" alt="LunaticAsylumServerManager moecounter">
@@ -39,7 +49,7 @@
 起動・停止・バックアップ・設定編集・Discord 連携まで GUI から一括管理できます。
 
 > **運用ステータス**  
-> 本番運用可能な機能セットが揃っています。  
+> 現在開発中です。最低限の機能のみで、パフォーマンスは未最適化です。本番運用は想定していません。  
 > 配布 ZIP は **未署名ポータブル** のため SmartScreen 警告が出る場合があります。コード署名（SignPath）は申請待ちです。
 
 ---

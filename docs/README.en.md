@@ -1,5 +1,7 @@
 # LunaticAsylum
 
+> **Currently in development.** Only a minimum set of features is implemented. Performance is not optimized.
+
 <p align="center">
   <a href="https://count.getloli.com/@LunaticAsylumServerManager">
     <img src="https://count.getloli.com/@LunaticAsylumServerManager?name=LunaticAsylumServerManager&theme=green&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=0" alt="LunaticAsylumServerManager moecounter">
@@ -38,8 +40,8 @@
 Launch `LunaticAsylum.exe` and drop server folders into the adjacent `Servers/` directory — they are **auto-detected**.  
 Manage start/stop, backups, configuration, and Discord integration from a single GUI.
 
-> **Production status**  
-> The app is ready for production use with the current feature set.  
+> **Status**  
+> Currently in development. Only a minimum set of features is implemented, and performance is not optimized. Not intended for production use.  
 > Release ZIPs are **unsigned portable** builds — Windows SmartScreen may warn. Code signing (SignPath) is pending.
 
 ---

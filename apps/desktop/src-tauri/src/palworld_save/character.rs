@@ -85,7 +85,7 @@ pub fn extract_characters(
             continue;
         };
 
-        let (is_player, nickname, level, character_id, owner) = match raw {
+        let summary = match raw {
             PropertyValue::CharacterRaw(c) => summarize_character(&c.fields),
             PropertyValue::Bytes(b) => match decode_bytes(b, stats) {
                 Ok(c) => summarize_character(&c.fields),
@@ -97,20 +97,26 @@ pub fn extract_characters(
             }
         };
 
-        if is_player {
-            players.push(json!({
+        if summary.is_player {
+            let mut obj = json!({
                 "key": key_id,
-                "nickname": nickname,
-                "level": level,
+                "nickname": summary.nickname,
+                "level": summary.level,
                 "isPlayer": true,
-            }));
+            });
+            if let Some((x, y, z)) = summary.location {
+                obj["x"] = json!(x);
+                obj["y"] = json!(y);
+                obj["z"] = json!(z);
+            }
+            players.push(obj);
         } else {
             pals.push(json!({
                 "key": key_id,
-                "characterId": character_id,
-                "nickname": nickname,
-                "level": level,
-                "ownerPlayerUid": owner,
+                "characterId": summary.character_id,
+                "nickname": summary.nickname,
+                "level": summary.level,
+                "ownerPlayerUid": summary.owner,
                 "isPlayer": false,
             }));
         }
@@ -127,20 +133,77 @@ pub fn extract_characters(
     (players, pals)
 }
 
-fn summarize_character(fields: &BTreeMap<String, PropertyValue>) -> (bool, String, i32, String, String) {
+struct CharacterSummary {
+    is_player: bool,
+    nickname: String,
+    level: i32,
+    character_id: String,
+    owner: String,
+    location: Option<(f64, f64, f64)>,
+}
+
+fn summarize_character(fields: &BTreeMap<String, PropertyValue>) -> CharacterSummary {
     let sp = nested_save_parameter(fields);
-    let is_player = find_bool(sp, "IsPlayer").unwrap_or(false);
-    let nickname = find_string(sp, "NickName")
-        .or_else(|| find_string(sp, "Nickname"))
-        .unwrap_or_default();
-    let level = find_int(sp, "Level").unwrap_or(0);
-    let character_id = find_string(sp, "CharacterID")
-        .or_else(|| find_string(sp, "CharacterId"))
-        .unwrap_or_default();
-    let owner = find_guid_str(sp, "OwnerPlayerUId")
-        .or_else(|| find_guid_str(sp, "OwnerPlayerUid"))
-        .unwrap_or_default();
-    (is_player, nickname, level, character_id, owner)
+    CharacterSummary {
+        is_player: find_bool(sp, "IsPlayer").unwrap_or(false),
+        nickname: find_string(sp, "NickName")
+            .or_else(|| find_string(sp, "Nickname"))
+            .unwrap_or_default(),
+        level: find_int(sp, "Level").unwrap_or(0),
+        character_id: find_string(sp, "CharacterID")
+            .or_else(|| find_string(sp, "CharacterId"))
+            .unwrap_or_default(),
+        owner: find_guid_str(sp, "OwnerPlayerUId")
+            .or_else(|| find_guid_str(sp, "OwnerPlayerUid"))
+            .unwrap_or_default(),
+        location: find_location(sp),
+    }
+}
+
+/// あるときだけ返す。フィールドが無ければ None（捏造しない）。
+fn find_location(fields: &BTreeMap<String, PropertyValue>) -> Option<(f64, f64, f64)> {
+    for name in ["Location", "Transform", "LastTransform"] {
+        if let Some(xyz) = xyz_from_value(fields.get(name)?) {
+            return Some(xyz);
+        }
+    }
+    None
+}
+
+fn xyz_from_value(value: &PropertyValue) -> Option<(f64, f64, f64)> {
+    match value {
+        PropertyValue::Struct { struct_type, fields } => {
+            if struct_type == "Vector" || struct_type == "Vector3d" {
+                return xyz_from_fields(fields);
+            }
+            if let Some(xyz) = xyz_from_fields(fields) {
+                return Some(xyz);
+            }
+            fields
+                .get("translation")
+                .or_else(|| fields.get("Translation"))
+                .and_then(xyz_from_value)
+        }
+        _ => None,
+    }
+}
+
+fn xyz_from_fields(fields: &BTreeMap<String, PropertyValue>) -> Option<(f64, f64, f64)> {
+    Some((
+        as_f64(fields.get("x")?)?,
+        as_f64(fields.get("y")?)?,
+        as_f64(fields.get("z")?)?,
+    ))
+}
+
+fn as_f64(value: &PropertyValue) -> Option<f64> {
+    match value {
+        PropertyValue::Double(v) => Some(*v),
+        PropertyValue::Float(v) => Some(*v as f64),
+        PropertyValue::Int(v) => Some(*v as f64),
+        PropertyValue::Int64(v) => Some(*v as f64),
+        _ => None,
+    }
 }
 
 fn nested_save_parameter(fields: &BTreeMap<String, PropertyValue>) -> &BTreeMap<String, PropertyValue> {

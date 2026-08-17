@@ -20,7 +20,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .cursor/plans/
-# rules/ と context/ は共有する（plans のみ除外）
+.cursor/context/
+# rules/ は共有する（plans / context はローカル）
 
 # Local working notes（公開 docs とは別）
 docs/dev/
@@ -42,6 +43,7 @@ apps/desktop/src-tauri/target/
 # Local runtime (dev)
 Servers/
 tools/
+/data/
 
 # Game saves / Oodle（誤コミット防止）
 *.sav

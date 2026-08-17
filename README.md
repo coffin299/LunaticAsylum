@@ -16,8 +16,8 @@
 - SteamCMD インストール、起動/停止/再起動、定期バックアップ（事前 REST save）、二段階レストア、REST GUI、クラッシュ再起動
 - 更新検知: AppInfo API ポーリング / 手動 / 任意自動適用
 - Discord 連携（OS Credential Store に Token）
-- Save: Port Map 準拠で Character/Group/BaseCamp RawData まで接続（PlM/Oodle・fixture は未）
-- Map: BaseCamp transform マーカー（プレイヤー座標は後続）
+- Save: Port Map 準拠で Character/Group/BaseCamp RawData まで接続（PlM は Oodle ライブラリを初回取得）
+- Map: BaseCamp transform / プレイヤー Location（フィールドがあるとき）
 - Minecraft: detect stub（Coming later）
 - 製品サイト骨格: `apps/webpage`（Pages は `webpage` ブランチ）
 - 配布: 当面未署名ポータブル ZIP

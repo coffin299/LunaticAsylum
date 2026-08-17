@@ -61,6 +61,12 @@ pub fn decompress_sav(data: &[u8]) -> Result<DecompressedSav, ParseError> {
             } else {
                 kind = ContainerKind::PlM;
             }
+            // Palhelm: PlM save_type 0x31 = Oodle Mermaid
+            if save_type != 0x31 {
+                return Err(ParseError::Unsupported(format!(
+                    "unhandled PlM save_type 0x{save_type:02x}"
+                )));
+            }
             let payload = data
                 .get(offset..)
                 .ok_or_else(|| ParseError::Eof("oodle payload".into()))?;

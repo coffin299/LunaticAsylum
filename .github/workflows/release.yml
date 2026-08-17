@@ -45,19 +45,35 @@ jobs:
       - name: Stage portable zip contents
         shell: pwsh
         run: |
+          $releaseDir = "apps/desktop/src-tauri/target/release"
           $stage = "dist-portable/LunaticAsylum"
           New-Item -ItemType Directory -Force -Path "$stage/Servers" | Out-Null
           Copy-Item "apps/desktop/src-tauri/resources/HOW_TO_ADD_SERVERS.txt" "$stage/Servers/"
-          # Prefer release exe from target
-          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release" -Filter "LunaticAsylum.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          # Cargo package name is "desktop"; mainBinaryName renames to LunaticAsylum.exe during tauri build
+          $exeCandidates = @(
+            (Join-Path $releaseDir "LunaticAsylum.exe"),
+            (Join-Path $releaseDir "desktop.exe")
+          )
+          $exe = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $exe) {
-            throw "LunaticAsylum.exe not found in release output"
+            Write-Error "Release exe not found. Checked: $($exeCandidates -join ', ')"
+            Get-ChildItem -Path $releaseDir -File | Select-Object Name | Format-Table -AutoSize
+            exit 1
           }
-          Copy-Item $exe.FullName $stage/
-          # Copy adjacent DLL/resources if present next to exe
-          Get-ChildItem $exe.DirectoryName -File | Where-Object { $_.Name -ne $exe.Name -and $_.Extension -in ".dll",".pdb" } | ForEach-Object {
+
+          Copy-Item $exe (Join-Path $stage "LunaticAsylum.exe")
+          # Copy runtime files shipped next to the exe (WebView2 loader, etc.)
+          Get-ChildItem $releaseDir -File | Where-Object {
+            $_.Name -notmatch '\.(exe|pdb)$'
+          } | ForEach-Object {
             Copy-Item $_.FullName $stage/
           }
+          $resourcesDir = Join-Path $releaseDir "resources"
+          if (Test-Path $resourcesDir) {
+            Copy-Item $resourcesDir (Join-Path $stage "resources") -Recurse
+          }
+
           Compress-Archive -Path "dist-portable/LunaticAsylum" -DestinationPath "LunaticAsylum-windows-x64.zip" -Force
 
       - name: Upload artifact

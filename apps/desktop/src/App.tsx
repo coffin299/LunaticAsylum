@@ -203,7 +203,10 @@ function App() {
   const [palSettingsRaw, setPalSettingsRaw] = useState("");
   const [mcPropsRaw, setMcPropsRaw] = useState("");
   const [palRunningWarning, setPalRunningWarning] = useState(false);
-  const [closePrompt, setClosePrompt] = useState<string[] | null>(null);
+  const [closePrompt, setClosePrompt] = useState<{
+    names: string[];
+    checkFailed: boolean;
+  } | null>(null);
   const [closeShuttingDown, setCloseShuttingDown] = useState(false);
   const [mcRconEnabled, setMcRconEnabled] = useState(false);
   const [mcRconPort, setMcRconPort] = useState(25575);
@@ -211,6 +214,8 @@ function App() {
   const [mcRconPasswordSet, setMcRconPasswordSet] = useState(false);
   const [mcConsoleCmd, setMcConsoleCmd] = useState("");
   const forceCloseRef = useRef(false);
+  const serversRef = useRef(servers);
+  serversRef.current = servers;
 
   const selected = useMemo(
     () => servers.find((s) => s.id === selectedId) ?? null,
@@ -349,23 +354,60 @@ function App() {
   }, [servers]);
 
   useEffect(() => {
+    let cancelled = false;
     let unlistenClose: (() => void) | undefined;
-    void getCurrentWindow()
-      .onCloseRequested(async (event) => {
-        if (forceCloseRef.current) {
+
+    const destroyMainWindow = async () => {
+      forceCloseRef.current = true;
+      await getCurrentWindow().destroy();
+    };
+
+    const registerCloseHandler = async () => {
+      try {
+        const unlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+          // await 前に止めないと Windows で閉じる操作が握りつぶされる
+          event.preventDefault();
+          if (forceCloseRef.current || cancelled) {
+            await destroyMainWindow();
+            return;
+          }
+          try {
+            const running = await invoke<string[]>("list_running_server_ids");
+            if (cancelled) {
+              await destroyMainWindow();
+              return;
+            }
+            if (running.length === 0) {
+              await destroyMainWindow();
+              return;
+            }
+            const names = running.map((id) => {
+              const row = serversRef.current.find((s) => s.id === id);
+              return row?.displayName || id;
+            });
+            setClosePrompt({ names, checkFailed: false });
+          } catch {
+            if (cancelled) {
+              await destroyMainWindow();
+              return;
+            }
+            // 確認に失敗してもダイアログを出して終了できるようにする
+            setClosePrompt({ names: [], checkFailed: true });
+          }
+        });
+        if (cancelled) {
+          unlisten();
           return;
         }
-        const running = await invoke<string[]>("list_running_server_ids");
-        if (running.length === 0) {
-          return;
-        }
-        event.preventDefault();
-        setClosePrompt(running);
-      })
-      .then((fn) => {
-        unlistenClose = fn;
-      });
+        unlistenClose = unlisten;
+      } catch {
+        // 登録失敗時は OS 既定の閉じる動作に任せる
+      }
+    };
+
+    void registerCloseHandler();
     return () => {
+      cancelled = true;
       unlistenClose?.();
     };
   }, []);
@@ -379,7 +421,7 @@ function App() {
       await invoke("shutdown_all_running_servers");
       forceCloseRef.current = true;
       setClosePrompt(null);
-      await getCurrentWindow().close();
+      await getCurrentWindow().destroy();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setCloseShuttingDown(false);
@@ -837,7 +879,11 @@ function App() {
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={busy}
+                    disabled={
+                      busy ||
+                      selected.status === "running" ||
+                      selected.status === "installing"
+                    }
                     onClick={() => void run(async () => invoke("start_server", { id: selected.id }))}
                   >
                     {t("ops.start")}
@@ -845,7 +891,7 @@ function App() {
                   <button
                     type="button"
                     className="btn btn-danger"
-                    disabled={busy}
+                    disabled={busy || selected.status !== "running"}
                     onClick={() => void run(async () => invoke("stop_server", { id: selected.id }))}
                   >
                     {t("ops.stop")}
@@ -853,7 +899,7 @@ function App() {
                   <button
                     type="button"
                     className="btn btn-danger"
-                    disabled={busy}
+                    disabled={busy || selected.status !== "running"}
                     onClick={() =>
                       void run(async () => invoke("restart_server", { id: selected.id }))
                     }
@@ -2030,7 +2076,9 @@ function App() {
             <p>
               {closeShuttingDown
                 ? t("app.closeConfirmShuttingDown")
-                : t("app.closeConfirmBody", { names: closePrompt.join(", ") })}
+                : closePrompt.checkFailed
+                  ? t("app.closeConfirmCheckFailed")
+                  : t("app.closeConfirmBody", { names: closePrompt.names.join(", ") })}
             </p>
             <div className="modal-actions">
               <button

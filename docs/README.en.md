@@ -48,7 +48,7 @@ Manage start/stop, backups, configuration, and Discord integration from a single
 
 ### Core
 
-- SteamCMD install, start / stop / restart (stop sends REST `/stop` then terminates the process tree)
+- SteamCMD install, start / stop / restart (buttons disabled by server state; stop sends REST `/stop` then terminates the process tree)
 - Scheduled backups (REST save before backup), **two-step restore**, crash auto-restart
 - Update detection: AppInfo API polling / manual / optional auto-apply
 - Discord integration (tokens stored in **OS Credential Store**)

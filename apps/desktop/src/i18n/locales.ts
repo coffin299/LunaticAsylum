@@ -4,6 +4,8 @@ export const ja = {
     closeConfirmTitle: "アプリを終了しますか？",
     closeConfirmBody:
       "サーバー「{{names}}」が稼働中です。終了する前にすべてのサーバーを停止します。",
+    closeConfirmCheckFailed:
+      "稼働中サーバーの確認に失敗しました。終了するとプロセスが残る可能性があります。",
     closeConfirmExit: "サーバーを停止して終了",
     closeConfirmStay: "アプリに戻る",
     closeConfirmShuttingDown: "サーバーを停止しています…",
@@ -168,6 +170,8 @@ export const en = {
     closeConfirmTitle: "Close the app?",
     closeConfirmBody:
       "Server(s) \"{{names}}\" are still running. All servers will be stopped before exit.",
+    closeConfirmCheckFailed:
+      "Could not check running servers. Exiting may leave processes running.",
     closeConfirmExit: "Stop servers and exit",
     closeConfirmStay: "Return to app",
     closeConfirmShuttingDown: "Stopping servers…",

@@ -50,11 +50,7 @@ button {
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-button:disabled:hover {
-  background: inherit;
-  border-color: inherit;
+  pointer-events: none;
 }
 
 button:focus-visible,

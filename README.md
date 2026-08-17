@@ -48,7 +48,7 @@
 
 ### コア
 
-- SteamCMD インストール、起動 / 停止 / 再起動（停止時は REST `/stop` → プロセスツリー終了）
+- SteamCMD インストール、起動 / 停止 / 再起動（状態に応じてボタンを無効化。停止時は REST `/stop` → プロセスツリー終了）
 - 定期バックアップ（事前 REST save）、**二段階レストア**、クラッシュ再起動
 - 更新検知: AppInfo API ポーリング / 手動 / 任意自動適用
 - Discord 連携（Token は **OS Credential Store** に保存）

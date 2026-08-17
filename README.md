@@ -12,15 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="docs/README.en.md"><img src="https://img.shields.io/badge/English-README-6366F1?style=flat-square" alt="English README"></a>
-  <a href="docs/INDEX.md"><img src="https://img.shields.io/badge/Docs-Index-6366F1?style=flat-square" alt="Docs Index"></a>
-</p>
-
-<p align="center">
   <a href="https://github.com/coffin299/LunaticAsylum"><img src="https://img.shields.io/github/v/release/coffin299/LunaticAsylum?label=Release&sort=semver&logo=github" alt="Release"></a>
-  <a href="https://github.com/coffin299/LunaticAsylum/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/coffin299/LunaticAsylum/release.yml?branch=main&label=Release%20CI&logo=githubactions" alt="Release CI"></a>
   <a href="https://github.com/coffin299/LunaticAsylum/blob/main/LICENSE"><img src="https://img.shields.io/github/license/coffin299/LunaticAsylum?logo=opensourceinitiative&logoColor=white" alt="License MIT"></a>
-  <a href="https://github.com/coffin299/LunaticAsylum/security"><img src="https://img.shields.io/badge/Security-Policy-blue?logo=github&logoColor=white" alt="Security Policy"></a>
   <a href="https://github.com/coffin299/LunaticAsylum/releases"><img src="https://img.shields.io/badge/Download-Portable%20ZIP-22C55E?logo=github&logoColor=white" alt="Download"></a>
 </p>
 
@@ -34,19 +27,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Palworld-REST%20%2B%20Save%20Parse-5865F2?style=flat-square&logo=steam&logoColor=white" alt="Palworld">
-  <img src="https://img.shields.io/badge/Minecraft-Java%20RCON-62B47A?style=flat-square&logo=minecraft&logoColor=white" alt="Minecraft Java">
   <img src="https://img.shields.io/badge/Discord-Integration-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord">
-  <img src="https://img.shields.io/badge/SteamCMD-Auto%20Update-1B2838?style=flat-square&logo=steam&logoColor=white" alt="SteamCMD">
-  <img src="https://img.shields.io/badge/Backup-Scheduled%20%2B%20Restore-22C55E?style=flat-square" alt="Backup">
-  <img src="https://img.shields.io/badge/Portable-ZIP%20Distribution-F59E0B?style=flat-square" alt="Portable ZIP">
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Secrets-OS%20Credential%20Store-22C55E?style=flat-square&logo=windows&logoColor=white" alt="OS Credential Store">
-  <img src="https://img.shields.io/badge/ZIP%20Restore-Zip%20Slip%20Protected-22C55E?style=flat-square" alt="Zip Slip Protected">
   <img src="https://img.shields.io/badge/Code%20Signing-Pending%20(SignPath)-F97316?style=flat-square" alt="Code Signing Pending">
 </p>
+
+[English](docs/README.en.md) · [Docs](docs/INDEX.md)
 
 ---
 
@@ -60,13 +45,6 @@
 ---
 
 ## 機能
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Discovery-Auto%20Detect-22C55E?style=for-the-badge" alt="Auto Detect">
-  <img src="https://img.shields.io/badge/Lifecycle-Start%20%2F%20Stop%20%2F%20Restart-22C55E?style=for-the-badge" alt="Lifecycle">
-  <img src="https://img.shields.io/badge/Crash%20Recovery-Auto%20Restart-22C55E?style=for-the-badge" alt="Crash Recovery">
-  <img src="https://img.shields.io/badge/Update%20Check-AppInfo%20API-22C55E?style=for-the-badge" alt="Update Check">
-</p>
 
 ### コア
 
@@ -122,10 +100,6 @@ LunaticAsylum/
 
 ## 開発
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Prerequisites-Node%2020%2B%20%7C%20pnpm%209%20%7C%20Rust-333?style=flat-square" alt="Prerequisites">
-</p>
-
 要件: **Node 20+**、**pnpm 9**、**Rust**（Tauri 2）
 
 ```bat
@@ -159,9 +133,5 @@ pnpm dev
 ---
 
 ## ライセンス
-
-<p align="center">
-  <a href="https://github.com/coffin299/LunaticAsylum/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-6366F1?style=for-the-badge" alt="MIT License"></a>
-</p>
 
 MIT

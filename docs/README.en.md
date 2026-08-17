@@ -7,13 +7,13 @@
 </p>
 
 <p align="center">
-  <strong>Windows 向けゲームサーバー管理デスクトップアプリ</strong><br>
-  <sub>起動・停止・バックアップ・設定編集・Discord 連携をひとつに</sub>
+  <strong>Desktop game server manager for Windows</strong><br>
+  <sub>Start, stop, backup, configure, and Discord — all in one place</sub>
 </p>
 
 <p align="center">
-  <a href="docs/README.en.md"><img src="https://img.shields.io/badge/English-README-6366F1?style=flat-square" alt="English README"></a>
-  <a href="docs/INDEX.md"><img src="https://img.shields.io/badge/Docs-Index-6366F1?style=flat-square" alt="Docs Index"></a>
+  <a href="../README.md"><img src="https://img.shields.io/badge/日本語-README-6366F1?style=flat-square" alt="Japanese README"></a>
+  <a href="./INDEX.md"><img src="https://img.shields.io/badge/Docs-Index-6366F1?style=flat-square" alt="Docs Index"></a>
 </p>
 
 <p align="center">
@@ -50,16 +50,16 @@
 
 ---
 
-`LunaticAsylum.exe` を起動し、隣の `Servers/` に好きな名前のフォルダでサーバーを置くと **自動検出** されます。  
-起動・停止・バックアップ・設定編集・Discord 連携まで GUI から一括管理できます。
+Launch `LunaticAsylum.exe` and drop server folders into the adjacent `Servers/` directory — they are **auto-detected**.  
+Manage start/stop, backups, configuration, and Discord integration from a single GUI.
 
-> **運用ステータス**  
-> 本番運用可能な機能セットが揃っています。  
-> 配布 ZIP は **未署名ポータブル** のため SmartScreen 警告が出る場合があります。コード署名（SignPath）は申請待ちです。
+> **Production status**  
+> The app is ready for production use with the current feature set.  
+> Release ZIPs are **unsigned portable** builds — Windows SmartScreen may warn. Code signing (SignPath) is pending.
 
 ---
 
-## 機能
+## Features
 
 <p align="center">
   <img src="https://img.shields.io/badge/Discovery-Auto%20Detect-22C55E?style=for-the-badge" alt="Auto Detect">
@@ -68,65 +68,65 @@
   <img src="https://img.shields.io/badge/Update%20Check-AppInfo%20API-22C55E?style=for-the-badge" alt="Update Check">
 </p>
 
-### コア
+### Core
 
-- SteamCMD インストール、起動 / 停止 / 再起動（停止時は REST `/stop` → プロセスツリー終了）
-- 定期バックアップ（事前 REST save）、**二段階レストア**、クラッシュ再起動
-- 更新検知: AppInfo API ポーリング / 手動 / 任意自動適用
-- Discord 連携（Token は **OS Credential Store** に保存）
-- UI: 単一ダークテーマ、Overview（PC リソース・バナー）
-- 非対応 / 空フォルダは一覧表示・操作 UI 非表示
-- **稼働中サーバーがあるとき終了確認**（全サーバー停止してから終了）
+- SteamCMD install, start / stop / restart (stop sends REST `/stop` then terminates the process tree)
+- Scheduled backups (REST save before backup), **two-step restore**, crash auto-restart
+- Update detection: AppInfo API polling / manual / optional auto-apply
+- Discord integration (tokens stored in **OS Credential Store**)
+- UI: single dark theme, Overview (host resources & banners)
+- Unsupported / empty folders appear in the list but hide action controls
+- **Exit confirmation when servers are running** (must stop all servers before quitting)
 
 ### Palworld
 
 | | |
 | :--- | :--- |
-| 設定 GUI | `PalWorldSettings.ini` — **ini ↔ REST 双方向同期**（手動同期ボタン付き） |
-| セーブ解析 | Port Map 準拠で Character / Group / BaseCamp RawData まで接続（PlM は Oodle を初回取得） |
-| マップ | 拠点 transform（Level.sav）/ プレイヤー LastTransform（Players/*.sav） |
-| その他 | Steam バナー、セーブ解析は後追いローディング |
+| Settings GUI | `PalWorldSettings.ini` — **ini ↔ REST two-way sync** (manual sync button) |
+| Save parsing | Port Map compliant through Character / Group / BaseCamp RawData (PlM fetches Oodle on first use) |
+| Map | Base transforms (Level.sav) / player LastTransform (Players/*.sav) |
+| Other | Steam banner, lazy-loaded save parsing |
 
 ### Minecraft
 
 | | |
 | :--- | :--- |
-| 起動 | `java -jar`（種別: Vanilla / Paper 等をユーザー選択） |
-| 設定 GUI | `server.properties` 編集 |
-| RCON | **Java 版 Source RCON** — properties ↔ RCON 双方向同期（手動同期ボタン付き） |
+| Launch | `java -jar` (user picks type: Vanilla / Paper / etc.) |
+| Settings GUI | `server.properties` editor |
+| RCON | **Java Source RCON** — properties ↔ RCON two-way sync (manual sync button) |
 
-### その他
+### Other
 
-- SteamCMD: `{appRoot}/tools/steamcmd` 固定。未取得時バナーから取得
-- 製品サイト骨格: `apps/webpage`（Pages は `webpage` ブランチ）
-- 配布: 未署名ポータブル ZIP（Cargo 中間ファイルは ZIP に含めない）
+- SteamCMD: fixed at `{appRoot}/tools/steamcmd`; fetch from banner when missing
+- Product site scaffold: `apps/webpage` (Pages on `webpage` branch)
+- Distribution: unsigned portable ZIP (no Cargo intermediate files in the archive)
 
 ---
 
-## クイックスタート
+## Quick start
 
 ```text
 LunaticAsylum/
 ├── LunaticAsylum.exe
 ├── Servers/
-│   ├── my-palworld/       ← ここにサーバーフォルダを置く
+│   ├── my-palworld/       ← put server folders here
 │   └── my-minecraft/
 └── tools/steamcmd/
 ```
 
-1. [Releases](https://github.com/coffin299/LunaticAsylum/releases) から ZIP をダウンロード
-2. 展開して `LunaticAsylum.exe` を起動
-3. `Servers/` にサーバーフォルダを配置 → 自動検出
+1. Download the ZIP from [Releases](https://github.com/coffin299/LunaticAsylum/releases)
+2. Extract and run `LunaticAsylum.exe`
+3. Place server folders under `Servers/` → auto-detected
 
 ---
 
-## 開発
+## Development
 
 <p align="center">
   <img src="https://img.shields.io/badge/Prerequisites-Node%2020%2B%20%7C%20pnpm%209%20%7C%20Rust-333?style=flat-square" alt="Prerequisites">
 </p>
 
-要件: **Node 20+**、**pnpm 9**、**Rust**（Tauri 2）
+Requirements: **Node 20+**, **pnpm 9**, **Rust** (Tauri 2)
 
 ```bat
 corepack enable
@@ -135,30 +135,29 @@ pnpm install
 pnpm dev
 ```
 
-| コマンド | 説明 |
+| Command | Description |
 | :--- | :--- |
-| `pnpm dev` | Tauri 開発サーバー |
-| `pnpm build` | 本番ビルド |
+| `pnpm dev` | Tauri dev server |
+| `pnpm build` | Production build |
 
 ---
 
-## ドキュメント
+## Documentation
 
-| ドキュメント | 内容 |
+| Document | Description |
 | :--- | :--- |
-| [docs/INDEX.md](docs/INDEX.md) | ドキュメント索引 |
-| [docs/README.en.md](docs/README.en.md) | プロジェクト概要（English） |
-| [docs/architecture.md](docs/architecture.md) | レイヤ・Discovery・Backup・Update check |
-| [docs/provider-guide.md](docs/provider-guide.md) | Provider 追加手順 |
-| [docs/discord.md](docs/discord.md) | Discord 連携（Palworld 専用） |
-| [docs/palworld-save-migration.md](docs/palworld-save-migration.md) | セーブ移行（日英） |
-| [docs/security-adoption.md](docs/security-adoption.md) | 採用済みセキュリティ要約 |
-| [docs/code-signing.md](docs/code-signing.md) | SignPath / 署名（将来） |
-| [.github/SECURITY.md](.github/SECURITY.md) | 脆弱性報告ポリシー |
+| [INDEX.md](./INDEX.md) | Documentation index |
+| [architecture.md](./architecture.md) | Layers, Discovery, Backup, Update check |
+| [provider-guide.md](./provider-guide.md) | Adding a Provider |
+| [discord.md](./discord.md) | Discord integration (Palworld-specific) |
+| [palworld-save-migration.md](./palworld-save-migration.md) | Save migration (JA / EN) |
+| [security-adoption.md](./security-adoption.md) | Adopted security measures |
+| [code-signing.md](./code-signing.md) | SignPath / signing (future) |
+| [../.github/SECURITY.md](../.github/SECURITY.md) | Vulnerability reporting policy |
 
 ---
 
-## ライセンス
+## License
 
 <p align="center">
   <a href="https://github.com/coffin299/LunaticAsylum/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-6366F1?style=for-the-badge" alt="MIT License"></a>

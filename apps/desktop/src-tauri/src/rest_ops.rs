@@ -9,6 +9,9 @@ fn client_for(id: &str) -> Result<PalworldRestClient, String> {
     let root = paths::app_root()?;
     let instance = paths::instance_dir(&root, id)?;
     let cfg = load_hydrated_config(&instance, id)?;
+    if !cfg.rest_api_enabled {
+        return Err("REST API is disabled in PalWorldSettings.ini".into());
+    }
     if cfg.rest_password.is_empty() {
         return Err("REST password is not set".into());
     }

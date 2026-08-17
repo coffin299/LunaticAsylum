@@ -63,11 +63,13 @@ jobs:
           }
 
           Copy-Item $exe (Join-Path $stage "LunaticAsylum.exe")
-          # Copy runtime files shipped next to the exe (WebView2 loader, etc.)
-          Get-ChildItem $releaseDir -File | Where-Object {
-            $_.Name -notmatch '\.(exe|pdb)$'
-          } | ForEach-Object {
-            Copy-Item $_.FullName $stage/
+          # Runtime DLLs only (exclude Cargo intermediates: *.d, .cargo-*, *.lib, *.rlib, desktop_lib.*)
+          $allowDll = @("WebView2Loader.dll")
+          foreach ($name in $allowDll) {
+            $dll = Join-Path $releaseDir $name
+            if (Test-Path $dll) {
+              Copy-Item $dll $stage/
+            }
           }
           $resourcesDir = Join-Path $releaseDir "resources"
           if (Test-Path $resourcesDir) {

@@ -1,0 +1,121 @@
+[
+  {
+    "key": "ServerName",
+    "category": "server",
+    "type": "string",
+    "descriptionJa": "サーバー名",
+    "descriptionEn": "Server name"
+  },
+  {
+    "key": "ServerDescription",
+    "category": "server",
+    "type": "string",
+    "descriptionJa": "サーバー説明",
+    "descriptionEn": "Server description"
+  },
+  {
+    "key": "ServerPassword",
+    "category": "server",
+    "type": "string",
+    "descriptionJa": "サーバーのログインに必要なパスワード",
+    "descriptionEn": "Password required to join the server"
+  },
+  {
+    "key": "AdminPassword",
+    "category": "server",
+    "type": "string",
+    "descriptionJa": "管理者権限を取得するパスワード",
+    "descriptionEn": "Admin password"
+  },
+  {
+    "key": "ServerPlayerMaxNum",
+    "category": "server",
+    "type": "number",
+    "descriptionJa": "サーバーに参加できる最大人数",
+    "descriptionEn": "Maximum number of players"
+  },
+  {
+    "key": "RESTAPIEnabled",
+    "category": "server",
+    "type": "bool",
+    "descriptionJa": "REST API の有効化",
+    "descriptionEn": "Enable REST API"
+  },
+  {
+    "key": "RESTAPIPort",
+    "category": "server",
+    "type": "number",
+    "descriptionJa": "REST API の待ち受けポート",
+    "descriptionEn": "REST API port"
+  },
+  {
+    "key": "RCONEnabled",
+    "category": "server",
+    "type": "bool",
+    "descriptionJa": "RCON を有効化",
+    "descriptionEn": "Enable RCON"
+  },
+  {
+    "key": "RCONPort",
+    "category": "server",
+    "type": "number",
+    "descriptionJa": "RCON で使用するポート番号",
+    "descriptionEn": "RCON port"
+  },
+  {
+    "key": "bIsPvP",
+    "category": "game",
+    "type": "bool",
+    "descriptionJa": "PvP を有効化するか",
+    "descriptionEn": "Enable PvP"
+  },
+  {
+    "key": "bEnableFastTravel",
+    "category": "game",
+    "type": "bool",
+    "descriptionJa": "ファストトラベルを有効化するか",
+    "descriptionEn": "Enable fast travel"
+  },
+  {
+    "key": "ExpRate",
+    "category": "balance",
+    "type": "number",
+    "descriptionJa": "経験値の入手倍率",
+    "descriptionEn": "Experience rate multiplier"
+  },
+  {
+    "key": "PalCaptureRate",
+    "category": "balance",
+    "type": "number",
+    "descriptionJa": "捕獲確率の倍率",
+    "descriptionEn": "Pal capture rate multiplier"
+  },
+  {
+    "key": "DayTimeSpeedRate",
+    "category": "balance",
+    "type": "number",
+    "descriptionJa": "昼の経過速度",
+    "descriptionEn": "Day time speed rate"
+  },
+  {
+    "key": "NightTimeSpeedRate",
+    "category": "balance",
+    "type": "number",
+    "descriptionJa": "夜の経過速度",
+    "descriptionEn": "Night time speed rate"
+  },
+  {
+    "key": "BaseCampMaxNumInGuild",
+    "category": "performance",
+    "type": "number",
+    "descriptionJa": "ギルド当たりの最大拠点数",
+    "descriptionEn": "Max bases per guild"
+  },
+  {
+    "key": "BaseCampWorkerMaxNum",
+    "category": "performance",
+    "type": "number",
+    "descriptionJa": "拠点当たりの最大パル数",
+    "descriptionEn": "Max pals per base"
+  }
+]

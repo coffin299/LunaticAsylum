@@ -15,6 +15,7 @@ Integrations (discord)  ← outside Core
 - UI → Core → Provider（一方通行）
 - Discord は `packages/integrations/palworld-discord`（**ゲーム専用**。共通は Core のみ）
 - Palworld は REST のみ（RCON 非サポート）
+- Minecraft Java は Source RCON。ゲーム設定ファイル（ini / properties）と GUI は双方向同期
 
 ## Discovery
 

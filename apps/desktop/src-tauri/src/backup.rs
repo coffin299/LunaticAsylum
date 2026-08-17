@@ -23,6 +23,7 @@ pub fn create_backup(instance: &Path, keep_count: usize) -> Result<BackupEntryDt
     // 可能なら事前に REST save（instance id は親フォルダ名）
     if let Some(id) = instance.file_name().and_then(|s| s.to_str()) {
         let _ = crate::rest_ops::try_save(id);
+        let _ = crate::minecraft_rcon_ops::try_save(id);
     }
     let saved = instance.join("Pal").join("Saved");
     if !saved.is_dir() {

@@ -45,22 +45,76 @@ pub struct DiscordConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ArtConfig {
+    pub banner_path: String,
+}
+
+impl Default for ArtConfig {
+    fn default() -> Self {
+        Self {
+            banner_path: String::new(),
+        }
+    }
+}
+
+fn default_rest_api_enabled() -> bool {
+    true
+}
+
+fn default_rest_api_port() -> u16 {
+    crate::palworld_settings::DEFAULT_REST_API_PORT
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MinecraftConfig {
+    pub server_type: String,
+    pub jar_file: String,
+    pub jvm_args: String,
+    pub server_args: String,
+}
+
+impl Default for MinecraftConfig {
+    fn default() -> Self {
+        Self {
+            server_type: "unknown".into(),
+            jar_file: String::new(),
+            jvm_args: "-Xms2G -Xmx4G".into(),
+            server_args: "nogui".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceConfig {
     pub rest_base_url: String,
     pub rest_username: String,
     pub rest_password: String,
+    #[serde(default = "default_rest_api_enabled")]
+    pub rest_api_enabled: bool,
+    #[serde(default = "default_rest_api_port")]
+    pub rest_api_port: u16,
     pub backup: BackupConfig,
     pub crash_restart_enabled: bool,
     pub update_check: UpdateCheckConfig,
     pub discord: DiscordConfig,
+    #[serde(default)]
+    pub art: ArtConfig,
+    #[serde(default)]
+    pub minecraft: MinecraftConfig,
 }
 
 impl Default for InstanceConfig {
     fn default() -> Self {
         Self {
-            rest_base_url: "http://127.0.0.1:8212/v1/api".into(),
+            rest_base_url: crate::palworld_settings::rest_base_url_from_port(
+                crate::palworld_settings::DEFAULT_REST_API_PORT,
+            ),
             rest_username: "admin".into(),
             rest_password: String::new(),
+            rest_api_enabled: true,
+            rest_api_port: crate::palworld_settings::DEFAULT_REST_API_PORT,
             backup: BackupConfig {
                 enabled: false,
                 interval_value: 6,
@@ -88,6 +142,8 @@ impl Default for InstanceConfig {
                     topic: true,
                 },
             },
+            art: ArtConfig::default(),
+            minecraft: MinecraftConfig::default(),
         }
     }
 }
@@ -103,6 +159,14 @@ impl InstanceConfig {
         }
         if let Some(s) = v.get("restPassword").and_then(|x| x.as_str()) {
             cfg.rest_password = s.to_string();
+        }
+        if let Some(x) = v.get("restApiEnabled").and_then(|x| x.as_bool()) {
+            cfg.rest_api_enabled = x;
+        }
+        if let Some(x) = v.get("restApiPort").and_then(|x| x.as_u64()) {
+            if x > 0 && x <= u16::MAX as u64 {
+                cfg.rest_api_port = x as u16;
+            }
         }
         if let Some(b) = v.get("backup") {
             if let Some(x) = b.get("enabled").and_then(|x| x.as_bool()) {
@@ -187,6 +251,25 @@ impl InstanceConfig {
                 }
             }
         }
+        if let Some(a) = v.get("art") {
+            if let Some(x) = a.get("bannerPath").and_then(|x| x.as_str()) {
+                cfg.art.banner_path = x.to_string();
+            }
+        }
+        if let Some(m) = v.get("minecraft") {
+            if let Some(x) = m.get("serverType").and_then(|x| x.as_str()) {
+                cfg.minecraft.server_type = x.to_string();
+            }
+            if let Some(x) = m.get("jarFile").and_then(|x| x.as_str()) {
+                cfg.minecraft.jar_file = x.to_string();
+            }
+            if let Some(x) = m.get("jvmArgs").and_then(|x| x.as_str()) {
+                cfg.minecraft.jvm_args = x.to_string();
+            }
+            if let Some(x) = m.get("serverArgs").and_then(|x| x.as_str()) {
+                cfg.minecraft.server_args = x.to_string();
+            }
+        }
         cfg
     }
 
@@ -234,10 +317,14 @@ pub struct InstanceConfigDto {
     /// 常に空。変更時のみ write で送る
     pub rest_password: String,
     pub rest_password_set: bool,
+    pub rest_api_enabled: bool,
+    pub rest_api_port: u16,
     pub backup: BackupConfig,
     pub crash_restart_enabled: bool,
     pub update_check: UpdateCheckConfig,
     pub discord: DiscordConfigDto,
+    pub art: ArtConfig,
+    pub minecraft: MinecraftConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,6 +383,14 @@ pub fn load_hydrated_config(
     if let Some(p) = crate::secrets::get_rest_password(instance_id)? {
         cfg.rest_password = p;
     }
+
+    if crate::paths::detect_provider(instance) == "palworld" {
+        let ini_changed = crate::palworld_settings::sync_config_from_ini(instance, instance_id, &mut cfg)?;
+        if ini_changed {
+            save_instance_config(instance, &cfg)?;
+        }
+    }
+
     Ok(cfg)
 }
 
@@ -305,6 +400,8 @@ pub fn to_dto(cfg: &InstanceConfig) -> InstanceConfigDto {
         rest_username: cfg.rest_username.clone(),
         rest_password: String::new(),
         rest_password_set: !cfg.rest_password.is_empty(),
+        rest_api_enabled: cfg.rest_api_enabled,
+        rest_api_port: cfg.rest_api_port,
         backup: cfg.backup.clone(),
         crash_restart_enabled: cfg.crash_restart_enabled,
         update_check: cfg.update_check.clone(),
@@ -319,6 +416,8 @@ pub fn to_dto(cfg: &InstanceConfig) -> InstanceConfigDto {
             topic_template: cfg.discord.topic_template.clone(),
             notify: cfg.discord.notify.clone(),
         },
+        art: cfg.art.clone(),
+        minecraft: cfg.minecraft.clone(),
     }
 }
 
@@ -328,8 +427,14 @@ pub fn apply_dto_updates(
     base: &mut InstanceConfig,
     dto: &InstanceConfigDto,
 ) -> Result<(), String> {
-    crate::validate::validate_rest_base_url(&dto.rest_base_url)?;
-    base.rest_base_url = dto.rest_base_url.trim().to_string();
+    if dto.rest_api_port == 0 {
+        return Err("REST API port must be greater than 0".into());
+    }
+    base.rest_api_enabled = dto.rest_api_enabled;
+    base.rest_api_port = dto.rest_api_port;
+    base.rest_base_url =
+        crate::palworld_settings::rest_base_url_from_port(dto.rest_api_port);
+    crate::validate::validate_rest_base_url(&base.rest_base_url)?;
     base.rest_username = dto.rest_username.clone();
     base.backup = dto.backup.clone();
     base.crash_restart_enabled = dto.crash_restart_enabled;
@@ -341,6 +446,8 @@ pub fn apply_dto_updates(
     base.discord.poll_interval_seconds = dto.discord.poll_interval_seconds.max(5);
     base.discord.topic_template = dto.discord.topic_template.clone();
     base.discord.notify = dto.discord.notify.clone();
+    base.art = dto.art.clone();
+    base.minecraft = dto.minecraft.clone();
 
     if !dto.rest_password.is_empty() {
         crate::secrets::set_rest_password(instance_id, &dto.rest_password)?;

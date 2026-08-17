@@ -49,6 +49,17 @@ impl AppState {
         self.children.get(id).map(|c| c.id())
     }
 
+    /// 管理中でまだ稼働しているサーバー ID 一覧
+    pub fn running_server_ids(&mut self) -> Vec<String> {
+        self.children
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter(|id| self.is_running(id))
+            .collect()
+    }
+
     pub fn start(&mut self, id: &str, exe: &Path, cwd: &Path) -> Result<(), String> {
         if self.is_running(id) {
             return Err("already running".into());
@@ -77,6 +88,39 @@ impl AppState {
             .stderr(Stdio::from(log_err))
             .spawn()
             .map_err(|e| e.to_string())?;
+        self.children.insert(id.to_string(), child);
+        Ok(())
+    }
+
+    pub fn start_java(
+        &mut self,
+        id: &str,
+        java_args: &[String],
+        cwd: &Path,
+    ) -> Result<(), String> {
+        if self.is_running(id) {
+            return Err("already running".into());
+        }
+        self.intentional_stop.remove(id);
+
+        let asylum = cwd.join(".asylum");
+        std::fs::create_dir_all(&asylum).map_err(|e| e.to_string())?;
+        let log_path = asylum.join("process.log");
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|e| e.to_string())?;
+        let log_err = log_file.try_clone().map_err(|e| e.to_string())?;
+
+        let child = Command::new("java")
+            .current_dir(cwd)
+            .args(java_args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(log_err))
+            .spawn()
+            .map_err(|e| format!("failed to start java: {e}"))?;
         self.children.insert(id.to_string(), child);
         Ok(())
     }

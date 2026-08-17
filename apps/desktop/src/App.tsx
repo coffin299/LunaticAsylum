@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import type { LocalePreference, ThemePreference } from "@lunatic-asylum/shared";
-import { applyTheme, initTheme, saveThemePreference } from "./theme";
+import type { LocalePreference } from "@lunatic-asylum/shared";
 import {
   readLocalePreference,
   resolveLocale,
@@ -11,6 +12,18 @@ import {
 } from "./i18n";
 import i18n from "./i18n";
 import "./styles.css";
+
+const MC_TYPES = [
+  "vanilla",
+  "paper",
+  "purpur",
+  "fabric",
+  "neoforge",
+  "forge",
+  "spigot",
+  "other",
+  "unknown",
+] as const;
 
 interface ServerRow {
   id: string;
@@ -21,6 +34,8 @@ interface ServerRow {
   updateAvailable?: boolean;
   pid?: number | null;
   discordRunning?: boolean;
+  launchable?: boolean;
+  minecraftServerType?: string | null;
 }
 
 interface BackupRow {
@@ -34,6 +49,8 @@ interface InstanceConfig {
   restUsername: string;
   restPassword: string;
   restPasswordSet: boolean;
+  restApiEnabled: boolean;
+  restApiPort: number;
   backup: {
     enabled: boolean;
     intervalValue: number;
@@ -62,6 +79,23 @@ interface InstanceConfig {
       topic: boolean;
     };
   };
+  art: { bannerPath: string };
+  minecraft: {
+    serverType: string;
+    jarFile: string;
+    jvmArgs: string;
+    serverArgs: string;
+  };
+}
+
+type ServerView = "overview" | "palworld-settings" | "minecraft-props";
+
+interface HostResources {
+  cpuPercent: number;
+  memoryUsed: number;
+  memoryTotal: number;
+  diskUsed: number;
+  diskTotal: number;
 }
 
 type Page = "servers" | "settings";
@@ -72,6 +106,8 @@ function defaultConfig(): InstanceConfig {
     restUsername: "admin",
     restPassword: "",
     restPasswordSet: false,
+    restApiEnabled: true,
+    restApiPort: 8212,
     backup: {
       enabled: false,
       intervalValue: 6,
@@ -100,6 +136,37 @@ function defaultConfig(): InstanceConfig {
         topic: true,
       },
     },
+    art: { bannerPath: "" },
+    minecraft: {
+      serverType: "unknown",
+      jarFile: "",
+      jvmArgs: "-Xms2G -Xmx4G",
+      serverArgs: "nogui",
+    },
+  };
+}
+
+function mergeInstanceConfig(cfg: InstanceConfig): InstanceConfig {
+  return {
+    ...defaultConfig(),
+    ...cfg,
+    discord: {
+      ...defaultConfig().discord,
+      ...cfg.discord,
+      notify: {
+        ...defaultConfig().discord.notify,
+        ...cfg.discord?.notify,
+      },
+    },
+    updateCheck: { ...defaultConfig().updateCheck, ...cfg.updateCheck },
+    backup: { ...defaultConfig().backup, ...cfg.backup },
+    art: { ...defaultConfig().art, ...cfg.art },
+    minecraft: { ...defaultConfig().minecraft, ...cfg.minecraft },
+    restApiEnabled: cfg.restApiEnabled ?? defaultConfig().restApiEnabled,
+    restApiPort: cfg.restApiPort ?? defaultConfig().restApiPort,
+    restBaseUrl:
+      cfg.restBaseUrl ??
+      `http://127.0.0.1:${cfg.restApiPort ?? 8212}/v1/api`,
   };
 }
 
@@ -126,8 +193,24 @@ function App() {
   const [dashMetrics, setDashMetrics] = useState<Record<string, unknown> | null>(null);
   const [unbanId, setUnbanId] = useState("");
   const [discordRunning, setDiscordRunning] = useState(false);
-  const [theme, setTheme] = useState<ThemePreference>(() => initTheme());
   const [locale, setLocale] = useState<LocalePreference>(() => readLocalePreference());
+  const [serverView, setServerView] = useState<ServerView>("overview");
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [hostResources, setHostResources] = useState<HostResources | null>(null);
+  const [bannerSrc, setBannerSrc] = useState<string | null>(null);
+  const [steamcmdNeeded, setSteamcmdNeeded] = useState(false);
+  const [palSettingsRaw, setPalSettingsRaw] = useState("");
+  const [mcPropsRaw, setMcPropsRaw] = useState("");
+  const [palRunningWarning, setPalRunningWarning] = useState(false);
+  const [closePrompt, setClosePrompt] = useState<string[] | null>(null);
+  const [closeShuttingDown, setCloseShuttingDown] = useState(false);
+  const [mcRconEnabled, setMcRconEnabled] = useState(false);
+  const [mcRconPort, setMcRconPort] = useState(25575);
+  const [mcRconPassword, setMcRconPassword] = useState("");
+  const [mcRconPasswordSet, setMcRconPasswordSet] = useState(false);
+  const [mcConsoleCmd, setMcConsoleCmd] = useState("");
+  const forceCloseRef = useRef(false);
 
   const selected = useMemo(
     () => servers.find((s) => s.id === selectedId) ?? null,
@@ -153,34 +236,72 @@ function App() {
     }
   }, [selectedId]);
 
-  const loadDetail = useCallback(async (id: string) => {
+  const loadDetail = useCallback(async (id: string, row?: ServerRow | null) => {
+    setDetailLoading(true);
+    setSaveLoading(true);
+    setSaveStatus("");
+    setSaveSnapshot(null);
+    setServerView("overview");
     try {
       const cfg = await invoke<InstanceConfig>("read_instance_config", { id });
-      setConfig({ ...defaultConfig(), ...cfg, discord: { ...defaultConfig().discord, ...cfg.discord, notify: { ...defaultConfig().discord.notify, ...cfg.discord?.notify } }, updateCheck: { ...defaultConfig().updateCheck, ...cfg.updateCheck }, backup: { ...defaultConfig().backup, ...cfg.backup } });
+      const merged = mergeInstanceConfig(cfg);
+      if (
+        row?.providerId === "minecraft" &&
+        merged.minecraft.serverType === "unknown"
+      ) {
+        const suggested = await invoke<string>("suggest_minecraft_type", { id });
+        if (suggested !== "unknown") {
+          merged.minecraft.serverType = suggested;
+        }
+      }
+      setConfig(merged);
+      setDetailLoading(false);
+      if (row?.providerId === "minecraft") {
+        void invoke<{
+          enabled: boolean;
+          port: number;
+          passwordConfigured: boolean;
+        }>("read_minecraft_rcon_settings", { id })
+          .then((r) => applyMcRconFromDisk(r))
+          .catch(() => undefined);
+      }
       await invoke("set_crash_restart", { id, enabled: cfg.crashRestartEnabled });
-      const b = await invoke<BackupRow[]>("list_backups", { id });
+
+      void invoke<{ path?: string; transparent: boolean }>("get_server_banner", { id })
+        .then((b) => {
+          setBannerSrc(b.path && !b.transparent ? convertFileSrc(b.path) : null);
+        })
+        .catch(() => setBannerSrc(null));
+
+      const [b, log, dash, d] = await Promise.all([
+        invoke<BackupRow[]>("list_backups", { id }),
+        invoke<string>("read_log_tail", { id, maxBytes: 32_000 }),
+        invoke<{ metrics?: Record<string, unknown> }>("dashboard_metrics", { id }).catch(
+          () => ({ metrics: null }),
+        ),
+        invoke<boolean>("discord_integration_status", { id }),
+      ]);
       setBackups(b);
-      const log = await invoke<string>("read_log_tail", { id, maxBytes: 32_000 });
       setLogTail(log);
-      const save = await invoke<{
+      setDashMetrics(dash.metrics ?? null);
+      setDiscordRunning(d);
+
+      void invoke<{
         status: string;
         message?: string;
         snapshot?: Record<string, unknown>;
-      }>("save_parser_status", { id });
-      setSaveStatus(save.message ?? save.status);
-      setSaveSnapshot(save.snapshot ?? null);
-      try {
-        const dash = await invoke<{
-          metrics?: Record<string, unknown>;
-          info?: Record<string, unknown>;
-        }>("dashboard_metrics", { id });
-        setDashMetrics(dash.metrics ?? null);
-      } catch {
-        setDashMetrics(null);
-      }
-      const d = await invoke<boolean>("discord_integration_status", { id });
-      setDiscordRunning(d);
+      }>("save_parser_status", { id })
+        .then((save) => {
+          setSaveStatus(save.message ?? save.status);
+          setSaveSnapshot(save.snapshot ?? null);
+        })
+        .catch((err) => {
+          setSaveStatus(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => setSaveLoading(false));
     } catch (err) {
+      setDetailLoading(false);
+      setSaveLoading(false);
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
@@ -203,9 +324,67 @@ function App() {
 
   useEffect(() => {
     if (selectedId) {
-      void loadDetail(selectedId);
+      void loadDetail(selectedId, selected);
+    } else {
+      setConfig(null);
+      setBannerSrc(null);
     }
-  }, [selectedId, loadDetail]);
+  }, [selectedId, loadDetail, selected]);
+
+  useEffect(() => {
+    const tick = () => {
+      void invoke<HostResources>("get_host_resources")
+        .then(setHostResources)
+        .catch(() => setHostResources(null));
+    };
+    tick();
+    const t = window.setInterval(tick, 3000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    void invoke<{ installed: boolean }>("steamcmd_status")
+      .then((s) => setSteamcmdNeeded(!s.installed))
+      .catch(() => setSteamcmdNeeded(false));
+  }, [servers]);
+
+  useEffect(() => {
+    let unlistenClose: (() => void) | undefined;
+    void getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        if (forceCloseRef.current) {
+          return;
+        }
+        const running = await invoke<string[]>("list_running_server_ids");
+        if (running.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        setClosePrompt(running);
+      })
+      .then((fn) => {
+        unlistenClose = fn;
+      });
+    return () => {
+      unlistenClose?.();
+    };
+  }, []);
+
+  const confirmAppExit = async () => {
+    if (closeShuttingDown) {
+      return;
+    }
+    setCloseShuttingDown(true);
+    try {
+      await invoke("shutdown_all_running_servers");
+      forceCloseRef.current = true;
+      setClosePrompt(null);
+      await getCurrentWindow().close();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setCloseShuttingDown(false);
+    }
+  };
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -223,28 +402,37 @@ function App() {
     }
   };
 
-  const refreshRest = async () => {
-    if (!selectedId) {
+  const refreshRemoteOps = async () => {
+    if (!selectedId || !selected) {
       return;
     }
     try {
-      const [p, m, i] = await Promise.all([
-        invoke<Record<string, unknown>[]>("rest_get_players", { id: selectedId }),
-        invoke<Record<string, unknown>>("rest_get_metrics", { id: selectedId }),
-        invoke<Record<string, unknown>>("rest_get_info", { id: selectedId }),
-      ]);
-      setPlayers(p);
-      setMetrics(m);
-      setInfo(i);
+      if (selected.providerId === "palworld") {
+        const [p, m, i] = await Promise.all([
+          invoke<Record<string, unknown>[]>("rest_get_players", { id: selectedId }),
+          invoke<Record<string, unknown>>("rest_get_metrics", { id: selectedId }),
+          invoke<Record<string, unknown>>("rest_get_info", { id: selectedId }),
+        ]);
+        setPlayers(p);
+        setMetrics(m);
+        setInfo(i);
+      } else if (selected.providerId === "minecraft") {
+        const [p, m, i] = await Promise.all([
+          invoke<Record<string, unknown>[]>("minecraft_rcon_get_players", {
+            id: selectedId,
+          }),
+          invoke<Record<string, unknown>>("minecraft_rcon_get_metrics", {
+            id: selectedId,
+          }),
+          invoke<Record<string, unknown>>("minecraft_rcon_get_info", { id: selectedId }),
+        ]);
+        setPlayers(p);
+        setMetrics(m);
+        setInfo(i);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  };
-
-  const onThemeChange = (value: ThemePreference) => {
-    setTheme(value);
-    saveThemePreference(value);
-    applyTheme(value);
   };
 
   const onLocaleChange = (value: LocalePreference) => {
@@ -253,10 +441,67 @@ function App() {
     void i18n.changeLanguage(resolveLocale(value));
   };
 
-  const providerLabel = (id: string) => {
-    if (id === "palworld") return t("servers.palworld");
-    if (id === "minecraft") return t("servers.minecraft");
+  const formatBytes = (n: number) => {
+    if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GB`;
+    if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(0)} MB`;
+    return `${n} B`;
+  };
+
+  const providerLabel = (row: ServerRow) => {
+    if (row.providerId === "palworld") return t("servers.palworld");
+    if (row.providerId === "minecraft") {
+      const st = row.minecraftServerType ?? "unknown";
+      const key = `servers.minecraftType.${st}` as const;
+      return t(key, { defaultValue: `Minecraft-${st}` });
+    }
     return t("servers.unknown");
+  };
+
+  const openPalworldSettings = async () => {
+    if (!selectedId) return;
+    const data = await invoke<{
+      raw: string;
+      runningWarning: boolean;
+      exists: boolean;
+    }>("read_palworld_settings", { id: selectedId });
+    setPalSettingsRaw(data.raw);
+    setPalRunningWarning(data.runningWarning);
+    setServerView("palworld-settings");
+  };
+
+  const openMinecraftProps = async () => {
+    if (!selectedId) return;
+    const data = await invoke<{ raw: string; exists: boolean }>(
+      "read_server_properties",
+      { id: selectedId },
+    );
+    setMcPropsRaw(data.raw);
+    setServerView("minecraft-props");
+  };
+
+  const applyMcRconFromDisk = (r: {
+    enabled: boolean;
+    port: number;
+    passwordConfigured: boolean;
+  }) => {
+    setMcRconEnabled(r.enabled);
+    setMcRconPort(r.port);
+    setMcRconPasswordSet(r.passwordConfigured);
+    setMcRconPassword("");
+  };
+
+  const syncPalworldSettingsFromDisk = async (id: string) => {
+    const cfg = await invoke<InstanceConfig>("sync_palworld_from_ini", { id });
+    setConfig(mergeInstanceConfig(cfg));
+  };
+
+  const syncMinecraftSettingsFromDisk = async (id: string) => {
+    const r = await invoke<{
+      enabled: boolean;
+      port: number;
+      passwordConfigured: boolean;
+    }>("sync_minecraft_rcon_from_properties", { id });
+    applyMcRconFromDisk(r);
   };
 
   const statusLabel = (status: string) => {
@@ -296,6 +541,27 @@ function App() {
 
         {page === "servers" && (
           <>
+            {steamcmdNeeded && (
+              <section className="panel steamcmd-banner" style={{ marginBottom: "1rem" }}>
+                <strong>{t("steamcmd.needTitle")}</strong>
+                <p className="muted" style={{ marginBottom: "0.75rem" }}>
+                  {t("steamcmd.needBody")}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await invoke("ensure_steamcmd_cmd");
+                      setSteamcmdNeeded(false);
+                    })
+                  }
+                >
+                  {t("steamcmd.fetch")}
+                </button>
+              </section>
+            )}
             <section className="panel" style={{ marginBottom: "1rem" }}>
               <h1>{t("servers.title")}</h1>
               <p className="muted">{t("servers.openFolderHint")}</p>
@@ -347,9 +613,9 @@ function App() {
                     {servers.map((row) => (
                       <tr
                         key={row.id}
+                        className="table-row-selectable"
                         onClick={() => setSelectedId(row.id)}
                         style={{
-                          cursor: "pointer",
                           background:
                             selectedId === row.id ? "var(--row-hover)" : undefined,
                         }}
@@ -357,13 +623,13 @@ function App() {
                         <td>
                           {row.displayName}
                           {row.updateAvailable ? (
-                            <span className="badge" style={{ marginLeft: 8 }}>
+                            <span className="badge badge-warning" style={{ marginLeft: 8 }}>
                               {t("servers.updateAvailable")}
                             </span>
                           ) : null}
                         </td>
                         <td>
-                          <span className="badge">{providerLabel(row.providerId)}</span>
+                          <span className="badge">{providerLabel(row)}</span>
                         </td>
                         <td>{statusLabel(row.status)}</td>
                         <td>{row.pid ?? "—"}</td>
@@ -374,36 +640,211 @@ function App() {
               )}
             </section>
 
-            {selected && config && (
+            {selected && (config || detailLoading) && (
               <section className="panel">
+                {serverView !== "overview" && (
+                  <div className="subview-back">
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => setServerView("overview")}
+                    >
+                      {t("servers.back")}
+                    </button>
+                  </div>
+                )}
+
+                {serverView === "palworld-settings" && config && (
+                  <>
+                    <h1>{t("servers.gameSettings")}</h1>
+                    {palRunningWarning && (
+                      <div className="alert">{t("ops.runningEditWarning")}</div>
+                    )}
+                    <label className="field">
+                      <span>{t("ops.palSettingsRaw")}</span>
+                      <textarea
+                        rows={18}
+                        value={palSettingsRaw}
+                        onChange={(e) => setPalSettingsRaw(e.target.value)}
+                        style={{ maxWidth: "100%", width: "100%" }}
+                      />
+                    </label>
+                    <div className="toolbar">
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const data = await invoke<{
+                              raw: string;
+                              runningWarning: boolean;
+                            }>("read_palworld_settings", { id: selected.id });
+                            setPalSettingsRaw(data.raw);
+                            setPalRunningWarning(data.runningWarning);
+                            await syncPalworldSettingsFromDisk(selected.id);
+                          })
+                        }
+                      >
+                        {t("ops.syncFromDisk")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await invoke("write_palworld_settings", {
+                              id: selected.id,
+                              raw: palSettingsRaw,
+                            });
+                            await syncPalworldSettingsFromDisk(selected.id);
+                            setServerView("overview");
+                          })
+                        }
+                      >
+                        {t("ops.saveConfig")}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {serverView === "minecraft-props" && config && (
+                  <>
+                    <h1>{t("servers.gameSettings")}</h1>
+                    {selected.status === "running" && (
+                      <div className="alert">{t("ops.runningEditWarning")}</div>
+                    )}
+                    {!mcPropsRaw && (
+                      <p className="muted">{t("ops.mcPropsMissing")}</p>
+                    )}
+                    <label className="field">
+                      <span>{t("ops.mcPropsRaw")}</span>
+                      <textarea
+                        rows={18}
+                        value={mcPropsRaw}
+                        onChange={(e) => setMcPropsRaw(e.target.value)}
+                        style={{ maxWidth: "100%", width: "100%" }}
+                      />
+                    </label>
+                    <div className="toolbar">
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const data = await invoke<{ raw: string }>(
+                              "read_server_properties",
+                              { id: selected.id },
+                            );
+                            setMcPropsRaw(data.raw);
+                            await syncMinecraftSettingsFromDisk(selected.id);
+                          })
+                        }
+                      >
+                        {t("ops.syncFromDisk")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await invoke("write_server_properties", {
+                              id: selected.id,
+                              raw: mcPropsRaw,
+                            });
+                            await syncMinecraftSettingsFromDisk(selected.id);
+                            setServerView("overview");
+                          })
+                        }
+                      >
+                        {t("ops.saveConfig")}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {serverView === "overview" && (
+                  <>
                 <h1>{selected.displayName}</h1>
                 <p className="muted path">{selected.path}</p>
-                {dashMetrics && (
-                  <p className="muted">
-                    {t("ops.playersShort")}:{" "}
-                    {String(
-                      dashMetrics.currentplayernum ?? "—",
+
+                <div className="overview-header">
+                  <div className="server-banner">
+                    {bannerSrc ? (
+                      <img src={bannerSrc} alt="" />
+                    ) : null}
+                  </div>
+                  <div>
+                    <p className="muted" style={{ marginTop: 0 }}>
+                      <span className="badge">{providerLabel(selected)}</span>{" "}
+                      {statusLabel(selected.status)}
+                      {selected.pid ? ` · PID ${selected.pid}` : ""}
+                    </p>
+                    {dashMetrics && (
+                      <p className="muted">
+                        {t("ops.playersShort")}:{" "}
+                        {String(dashMetrics.currentplayernum ?? "—")}/
+                        {String(dashMetrics.maxplayernum ?? "—")} · FPS{" "}
+                        {String(dashMetrics.serverfps ?? "—")}
+                        {selected.updateAvailable
+                          ? ` · ${t("servers.updateAvailable")}`
+                          : ""}
+                      </p>
                     )}
-                    /
-                    {String(dashMetrics.maxplayernum ?? "—")}{" "}
-                    · FPS {String(dashMetrics.serverfps ?? "—")}
-                    {selected.updateAvailable
-                      ? ` · ${t("servers.updateAvailable")}`
-                      : ""}
-                  </p>
+                  </div>
+                </div>
+
+                <h2 style={{ fontSize: "1.05rem" }}>{t("ops.hostResources")}</h2>
+                <div className="resource-grid">
+                  <div className="resource-card">
+                    <div className="label">{t("ops.cpu")}</div>
+                    <div className="value">
+                      {hostResources ? `${hostResources.cpuPercent.toFixed(0)}%` : "—"}
+                    </div>
+                  </div>
+                  <div className="resource-card">
+                    <div className="label">{t("ops.memory")}</div>
+                    <div className="value">
+                      {hostResources
+                        ? `${formatBytes(hostResources.memoryUsed)} / ${formatBytes(hostResources.memoryTotal)}`
+                        : "—"}
+                    </div>
+                  </div>
+                  <div className="resource-card">
+                    <div className="label">{t("ops.disk")}</div>
+                    <div className="value">
+                      {hostResources
+                        ? `${formatBytes(hostResources.diskUsed)} / ${formatBytes(hostResources.diskTotal)}`
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {detailLoading && (
+                  <p className="detail-loading">{t("common.loading")}</p>
                 )}
+
+                {!selected.launchable && (
+                  <div className="unsupported-msg">{t("servers.unsupportedFolder")}</div>
+                )}
+
+                {selected.launchable && config && (
+                  <>
                 <div className="toolbar">
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={busy || selected.providerId !== "palworld"}
+                    disabled={busy}
                     onClick={() => void run(async () => invoke("start_server", { id: selected.id }))}
                   >
                     {t("ops.start")}
                   </button>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn btn-danger"
                     disabled={busy}
                     onClick={() => void run(async () => invoke("stop_server", { id: selected.id }))}
                   >
@@ -411,7 +852,7 @@ function App() {
                   </button>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn btn-danger"
                     disabled={busy}
                     onClick={() =>
                       void run(async () => invoke("restart_server", { id: selected.id }))
@@ -419,6 +860,8 @@ function App() {
                   >
                     {t("ops.restart")}
                   </button>
+                  {selected.providerId === "palworld" && (
+                    <>
                   <button
                     type="button"
                     className="btn"
@@ -439,6 +882,8 @@ function App() {
                   >
                     {t("ops.update")}
                   </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     className="btn"
@@ -451,20 +896,380 @@ function App() {
                   >
                     {t("ops.backupNow")}
                   </button>
-                  <button type="button" className="btn" onClick={() => void refreshRest()}>
-                    {t("ops.refreshRest")}
-                  </button>
+                  {selected.providerId === "palworld" && (
+                    <button type="button" className="btn" onClick={() => void refreshRemoteOps()}>
+                      {t("ops.refreshRest")}
+                    </button>
+                  )}
+                  {selected.providerId === "minecraft" && (
+                    <button type="button" className="btn" onClick={() => void refreshRemoteOps()}>
+                      {t("ops.refreshRcon")}
+                    </button>
+                  )}
+                  {selected.providerId === "palworld" && (
+                    <button type="button" className="btn" onClick={() => void openPalworldSettings()}>
+                      {t("servers.gameSettings")}
+                    </button>
+                  )}
+                  {selected.providerId === "minecraft" && (
+                    <button type="button" className="btn" onClick={() => void openMinecraftProps()}>
+                      {t("servers.gameSettings")}
+                    </button>
+                  )}
                 </div>
 
+                {selected.providerId === "minecraft" && (
+                  <>
+                    <div className="field">
+                      <span>{t("servers.serverType")}</span>
+                      <select
+                        value={config.minecraft.serverType}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            minecraft: {
+                              ...config.minecraft,
+                              serverType: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        <option value="unknown">{t("servers.pickServerType")}</option>
+                        {MC_TYPES.map((tp) => (
+                          <option key={tp} value={tp}>
+                            {t(`servers.minecraftType.${tp}`)}
+                          </option>
+                        ))}
+                      </select>
+                      {config.minecraft.serverType === "unknown" && (
+                        <span className="muted">{t("servers.serverTypeHint")}</span>
+                      )}
+                    </div>
+                    <div className="field">
+                      <span>{t("ops.mcJar")}</span>
+                      <input
+                        className="btn"
+                        value={config.minecraft.jarFile}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            minecraft: { ...config.minecraft, jarFile: e.target.value },
+                          })
+                        }
+                        placeholder="paper.jar"
+                      />
+                    </div>
+                    <div className="field">
+                      <span>{t("ops.mcJvmArgs")}</span>
+                      <input
+                        className="btn"
+                        value={config.minecraft.jvmArgs}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            minecraft: { ...config.minecraft, jvmArgs: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <span>{t("ops.mcServerArgs")}</span>
+                      <input
+                        className="btn"
+                        value={config.minecraft.serverArgs}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            minecraft: { ...config.minecraft, serverArgs: e.target.value },
+                          })
+                        }
+                      />
+                    </div>
+                    {selected.status === "running" && (
+                      <div className="alert">{t("ops.runningEditWarning")}</div>
+                    )}
+                    <p className="muted">{t("ops.syncFromDiskHintMinecraft")}</p>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await syncMinecraftSettingsFromDisk(selected.id);
+                        })
+                      }
+                    >
+                      {t("ops.syncFromDisk")}
+                    </button>
+                    <label className="field">
+                      <span>
+                        <input
+                          type="checkbox"
+                          checked={mcRconEnabled}
+                          onChange={(e) => setMcRconEnabled(e.target.checked)}
+                        />{" "}
+                        {t("ops.rconEnabled")}
+                      </span>
+                    </label>
+                    <div className="field">
+                      <span>{t("ops.rconPort")}</span>
+                      <input
+                        className="btn"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={mcRconPort}
+                        onChange={(e) =>
+                          setMcRconPort(Number(e.target.value) || 25575)
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <span>
+                        {t("ops.rconPassword")}
+                        {mcRconPasswordSet ? ` (${t("ops.secretSaved")})` : ""}
+                      </span>
+                      <input
+                        className="btn"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={
+                          mcRconPasswordSet ? t("ops.secretPlaceholder") : ""
+                        }
+                        value={mcRconPassword}
+                        onChange={(e) => setMcRconPassword(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await invoke("write_minecraft_rcon_settings", {
+                            id: selected.id,
+                            settings: {
+                              enabled: mcRconEnabled,
+                              port: mcRconPort,
+                              password: mcRconPassword,
+                            },
+                          });
+                          setMcRconPassword("");
+                          if (mcRconPassword) {
+                            setMcRconPasswordSet(true);
+                          }
+                        })
+                      }
+                    >
+                      {t("ops.saveRconSettings")}
+                    </button>
+
+                    <h2 style={{ marginTop: "1.5rem", fontSize: "1.05rem" }}>
+                      {t("ops.rcon")}
+                    </h2>
+                    {info && (
+                      <pre className="path" style={{ whiteSpace: "pre-wrap" }}>
+                        {JSON.stringify(info, null, 2)}
+                      </pre>
+                    )}
+                    {metrics && (
+                      <pre className="path" style={{ whiteSpace: "pre-wrap" }}>
+                        {JSON.stringify(metrics, null, 2)}
+                      </pre>
+                    )}
+                    <div className="toolbar">
+                      <input
+                        className="btn"
+                        style={{ flex: 1 }}
+                        value={announce}
+                        placeholder={t("ops.announce")}
+                        onChange={(e) => setAnnounce(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() =>
+                          void run(async () => {
+                            await invoke("minecraft_rcon_announce", {
+                              id: selected.id,
+                              message: announce,
+                            });
+                            setAnnounce("");
+                          })
+                        }
+                      >
+                        {t("ops.send")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() =>
+                          void run(async () => {
+                            await invoke("minecraft_rcon_save", { id: selected.id });
+                          })
+                        }
+                      >
+                        Save
+                      </button>
+                    </div>
+                    <div className="toolbar">
+                      <input
+                        className="btn"
+                        style={{ flex: 1 }}
+                        value={mcConsoleCmd}
+                        placeholder={t("ops.consoleCommand")}
+                        onChange={(e) => setMcConsoleCmd(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={!mcConsoleCmd.trim()}
+                        onClick={() =>
+                          void run(async () => {
+                            const out = await invoke<string>("minecraft_rcon_command", {
+                              id: selected.id,
+                              command: mcConsoleCmd.trim(),
+                            });
+                            setInfo({ commandOutput: out });
+                            setMcConsoleCmd("");
+                          })
+                        }
+                      >
+                        {t("ops.runCommand")}
+                      </button>
+                    </div>
+                    <div className="toolbar">
+                      <input
+                        className="btn"
+                        style={{ flex: 1 }}
+                        value={unbanId}
+                        placeholder={t("ops.unbanPlayer")}
+                        onChange={(e) => setUnbanId(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={!unbanId.trim()}
+                        onClick={() =>
+                          void run(async () => {
+                            await invoke("minecraft_rcon_unban", {
+                              id: selected.id,
+                              player: unbanId.trim(),
+                            });
+                            setUnbanId("");
+                          })
+                        }
+                      >
+                        Unban
+                      </button>
+                    </div>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Player</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {players.map((p, idx) => {
+                          const name = String(p.name ?? p.playerName ?? "?");
+                          return (
+                            <tr key={`${name}-${idx}`}>
+                              <td>{name}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  onClick={() =>
+                                    void run(async () => {
+                                      await invoke("minecraft_rcon_kick", {
+                                        id: selected.id,
+                                        player: name,
+                                        message: "kicked by LunaticAsylum",
+                                      });
+                                    })
+                                  }
+                                >
+                                  Kick
+                                </button>{" "}
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  onClick={() =>
+                                    void run(async () => {
+                                      await invoke("minecraft_rcon_ban", {
+                                        id: selected.id,
+                                        player: name,
+                                        message: "banned by LunaticAsylum",
+                                      });
+                                    })
+                                  }
+                                >
+                                  Ban
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+
+                {selected.providerId === "palworld" && (
+                  <>
+                {selected.status === "running" && (
+                  <div className="alert">{t("ops.runningEditWarning")}</div>
+                )}
+                <p className="muted">{t("ops.syncFromDiskHintPalworld")}</p>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await syncPalworldSettingsFromDisk(selected.id);
+                    })
+                  }
+                >
+                  {t("ops.syncFromDisk")}
+                </button>
+                <label className="field">
+                  <span>
+                    <input
+                      type="checkbox"
+                      checked={config.restApiEnabled}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          restApiEnabled: e.target.checked,
+                        })
+                      }
+                    />{" "}
+                    {t("ops.restApiEnabled")}
+                  </span>
+                </label>
                 <div className="field">
-                  <span>{t("ops.restUrl")}</span>
+                  <span>{t("ops.restApiPort")}</span>
                   <input
                     className="btn"
-                    value={config.restBaseUrl}
-                    onChange={(e) =>
-                      setConfig({ ...config, restBaseUrl: e.target.value })
-                    }
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={config.restApiPort}
+                    onChange={(e) => {
+                      const port = Number(e.target.value) || 8212;
+                      setConfig({
+                        ...config,
+                        restApiPort: port,
+                        restBaseUrl: `http://127.0.0.1:${port}/v1/api`,
+                      });
+                    }}
                   />
+                </div>
+                <div className="field">
+                  <span>{t("ops.restUrl")}</span>
+                  <input className="btn" value={config.restBaseUrl} readOnly />
                 </div>
                 <div className="field">
                   <span>{t("ops.restUser")}</span>
@@ -1090,9 +1895,36 @@ function App() {
                   </tbody>
                 </table>
 
+                  </>
+                )}
+
+                <div className="toolbar">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={busy || !config}
+                    onClick={() =>
+                      config &&
+                      void run(async () => {
+                        await invoke("write_instance_config", {
+                          id: selected.id,
+                          config,
+                        });
+                      })
+                    }
+                  >
+                    {t("ops.saveConfig")}
+                  </button>
+                </div>
+
+                {selected.providerId === "palworld" && (
+                  <>
                 <h2 style={{ marginTop: "1.5rem", fontSize: "1.05rem" }}>
                   {t("ops.saveParser")}
                 </h2>
+                {saveLoading && (
+                  <p className="detail-loading">{t("ops.saveLoading")}</p>
+                )}
                 <p className="muted">{saveStatus || "—"}</p>
                 {saveSnapshot && (
                   <pre
@@ -1140,6 +1972,8 @@ function App() {
                       ?.note ?? t("ops.mapSoon")}
                   </div>
                 </div>
+                  </>
+                )}
 
                 <h2 style={{ marginTop: "1.5rem", fontSize: "1.05rem" }}>
                   {t("ops.logs")}
@@ -1157,6 +1991,10 @@ function App() {
                 >
                   {logTail || "—"}
                 </pre>
+                  </>
+                )}
+                  </>
+                )}
               </section>
             )}
           </>
@@ -1176,17 +2014,6 @@ function App() {
                 <option value="en">{t("settings.english")}</option>
               </select>
             </label>
-            <label className="field">
-              <span>{t("settings.theme")}</span>
-              <select
-                value={theme}
-                onChange={(e) => onThemeChange(e.target.value as ThemePreference)}
-              >
-                <option value="system">{t("settings.system")}</option>
-                <option value="light">{t("settings.light")}</option>
-                <option value="dark">{t("settings.dark")}</option>
-              </select>
-            </label>
             <div className="field">
               <span>{t("settings.appRoot")}</span>
               <code className="path">{appRoot || "—"}</code>
@@ -1195,6 +2022,37 @@ function App() {
           </section>
         )}
       </main>
+
+      {closePrompt && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-panel">
+            <h2>{t("app.closeConfirmTitle")}</h2>
+            <p>
+              {closeShuttingDown
+                ? t("app.closeConfirmShuttingDown")
+                : t("app.closeConfirmBody", { names: closePrompt.join(", ") })}
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn"
+                disabled={closeShuttingDown}
+                onClick={() => setClosePrompt(null)}
+              >
+                {t("app.closeConfirmStay")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={closeShuttingDown}
+                onClick={() => void confirmAppExit()}
+              >
+                {t("app.closeConfirmExit")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

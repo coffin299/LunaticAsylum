@@ -18,9 +18,12 @@
 - Discord 連携（OS Credential Store に Token）
 - Save: Port Map 準拠で Character/Group/BaseCamp RawData まで接続（PlM は Oodle ライブラリを初回取得）。巨大 MapObject は size スキップしてギルド/拠点まで到達する
 - Map: 拠点 transform（Level.sav）/ プレイヤー LastTransform（Players/*.sav）
-- Minecraft: detect stub（Coming later）
+- UI: 単一ダークテーマ、Overview（PC リソース・バナー）、非対応/空フォルダは一覧表示・操作 UI 非表示、**稼働中サーバーがあるとき終了確認（全サーバー停止してから終了）**
+- Palworld: `PalWorldSettings.ini` GUI、**ini ↔ REST 双方向同期**（手動同期ボタン付き）、Steam バナー、セーブ解析は後追いローディング
+- Minecraft: `java -jar` 起動、種別（Vanilla/Paper 等）ユーザー選択、`server.properties` 編集、**RCON（Java）**（手動同期ボタン付き）
+- SteamCMD: `{appRoot}/tools/steamcmd` 固定。未取得時バナーから取得
 - 製品サイト骨格: `apps/webpage`（Pages は `webpage` ブランチ）
-- 配布: 当面未署名ポータブル ZIP
+- 配布: 当面未署名ポータブル ZIP（Cargo 中間ファイルは ZIP に含めない）
 
 ## 開発
 

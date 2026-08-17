@@ -1,8 +1,12 @@
 mod backup;
 mod config;
 mod discord;
+mod game_art;
+mod host_resources;
+mod minecraft_rcon_ops;
 mod palworld_rest;
 mod palworld_save;
+mod palworld_settings;
 mod paths;
 mod process;
 mod rest_ops;
@@ -10,6 +14,8 @@ mod save_parser;
 mod scheduler;
 mod secret_util;
 mod secrets;
+mod server_properties;
+mod source_rcon;
 mod state;
 mod steamcmd;
 mod update_check;
@@ -33,6 +39,8 @@ pub struct ServerInstanceDto {
     pub update_available: bool,
     pub pid: Option<u32>,
     pub discord_running: bool,
+    pub launchable: bool,
+    pub minecraft_server_type: Option<String>,
 }
 #[tauri::command]
 fn ensure_servers_layout(state: State<'_, Arc<Mutex<AppState>>>) -> Result<String, String> {
@@ -74,6 +82,13 @@ fn list_server_instances(
             continue;
         }
         let provider_id = paths::detect_provider(&path).to_string();
+        let launchable = paths::is_launchable(&path);
+        let cfg = config::load_instance_config(&path);
+        let minecraft_server_type = if provider_id == "minecraft" {
+            Some(cfg.minecraft.server_type.clone())
+        } else {
+            None
+        };
         let running = guard.is_running(&name);
         let status = if running {
             "running"
@@ -91,6 +106,8 @@ fn list_server_instances(
             update_available: guard.update_flags.get(&name).copied().unwrap_or(false),
             pid: guard.pid_of(&name),
             discord_running: discord.status(&name),
+            launchable,
+            minecraft_server_type,
         });
     }
     out.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
@@ -100,14 +117,51 @@ fn list_server_instances(
 fn start_server(id: String, state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
     let root = paths::app_root()?;
     let instance = paths::instance_dir(&root, &id)?;
-    if paths::detect_provider(&instance) != "palworld" {
-        return Err("only palworld start is supported in this build".into());
+    let provider = paths::detect_provider(&instance);
+    if provider == "unknown" {
+        return Err("unsupported or empty server folder".into());
     }
-    let exe = paths::find_palserver_exe(&instance)
-        .ok_or_else(|| "PalServer.exe not found".to_string())?;
     let mut g = state.lock().map_err(|e| e.to_string())?;
-    g.root = Some(root);
-    g.start(&id, &exe, &instance)
+    g.root = Some(root.clone());
+    if provider == "palworld" {
+        let exe = paths::find_palserver_exe(&instance)
+            .ok_or_else(|| "PalServer.exe not found".to_string())?;
+        return g.start(&id, &exe, &instance);
+    }
+    if provider == "minecraft" {
+        let cfg = config::load_instance_config(&instance);
+        let jar = resolve_minecraft_jar(&instance, &cfg.minecraft)?;
+        let mut args = split_shell_args(&cfg.minecraft.jvm_args);
+        args.push("-jar".into());
+        args.push(jar.to_string_lossy().into_owned());
+        args.extend(split_shell_args(&cfg.minecraft.server_args));
+        return g.start_java(&id, &args, &instance);
+    }
+    Err("unsupported provider".into())
+}
+
+fn resolve_minecraft_jar(
+    instance: &std::path::Path,
+    mc: &config::MinecraftConfig,
+) -> Result<std::path::PathBuf, String> {
+    let root = paths::app_root()?;
+    let servers = paths::servers_dir(&root);
+    if !mc.jar_file.trim().is_empty() {
+        let p = instance.join(mc.jar_file.trim());
+        crate::validate::ensure_within(&servers, &p)?;
+        if p.is_file() {
+            return Ok(p);
+        }
+        return Err("configured jar file not found".into());
+    }
+    paths::find_minecraft_jar(instance).ok_or_else(|| "minecraft jar not found".into())
+}
+
+fn split_shell_args(s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|x| x.to_string())
+        .filter(|x| !x.is_empty())
+        .collect()
 }
 #[tauri::command]
 fn stop_server(id: String, state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
@@ -231,6 +285,14 @@ fn write_instance_config(
     let mut cfg = load_hydrated_config(&instance, &id)?;
     apply_dto_updates(&id, &mut cfg, &config)?;
     save_instance_config(&instance, &cfg)?;
+    if paths::detect_provider(&instance) == "palworld" {
+        let new_pw = if config.rest_password.is_empty() {
+            None
+        } else {
+            Some(config.rest_password.as_str())
+        };
+        palworld_settings::sync_ini_from_config(&instance, &cfg, new_pw)?;
+    }
     {
         let mut g = state.lock().map_err(|e| e.to_string())?;
         if cfg.crash_restart_enabled {
@@ -384,6 +446,257 @@ fn dashboard_metrics(id: String) -> Result<serde_json::Value, String> {
         "info": info,
     }))
 }
+
+#[tauri::command]
+fn list_running_server_ids(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<String>, String> {
+    let mut g = state.lock().map_err(|e| e.to_string())?;
+    Ok(g.running_server_ids())
+}
+
+/// 管理中の稼働サーバーをすべて停止してからアプリ終了できるようにする
+#[tauri::command]
+fn shutdown_all_running_servers(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), String> {
+    let root = paths::app_root()?;
+    let ids = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.root = Some(root.clone());
+        g.running_server_ids()
+    };
+    for id in ids {
+        let instance = paths::instance_dir(&root, &id)?;
+        let provider = paths::detect_provider(&instance);
+        let had_child = {
+            let g = state.lock().map_err(|e| e.to_string())?;
+            g.pid_of(&id).is_some()
+        };
+        if had_child && provider == "palworld" {
+            let _ = rest_ops::stop(&id);
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let mut g = state.lock().map_err(|e| e.to_string())?;
+                if !g.is_running(&id) {
+                    break;
+                }
+            }
+        }
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.stop_intentional(&id)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_host_resources() -> Result<host_resources::HostResourcesDto, String> {
+    Ok(host_resources::snapshot())
+}
+
+#[tauri::command]
+fn get_server_banner(id: String) -> Result<game_art::BannerDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    let provider = paths::detect_provider(&instance);
+    game_art::resolve_banner(&instance, provider)
+}
+
+#[tauri::command]
+fn steamcmd_status() -> Result<serde_json::Value, String> {
+    let root = paths::app_root()?;
+    Ok(serde_json::json!({
+        "installed": paths::steamcmd_installed(&root),
+        "path": root.join("tools").join("steamcmd").to_string_lossy(),
+    }))
+}
+
+#[tauri::command]
+fn ensure_steamcmd_cmd() -> Result<String, String> {
+    let root = paths::app_root()?;
+    let tools = root.join("tools").join("steamcmd");
+    steamcmd::ensure_steamcmd(&tools).map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn suggest_minecraft_type(id: String) -> Result<String, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    Ok(paths::suggest_minecraft_server_type(&instance).into())
+}
+
+#[tauri::command]
+fn read_palworld_settings(id: String, state: State<'_, Arc<Mutex<AppState>>>) -> Result<palworld_settings::PalworldSettingsDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    let running = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.is_running(&id)
+    };
+    palworld_settings::read_settings(&instance, running)
+}
+
+#[tauri::command]
+fn write_palworld_settings(id: String, raw: String) -> Result<(), String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    palworld_settings::write_settings(&instance, &raw)?;
+    let mut cfg = load_hydrated_config(&instance, &id)?;
+    let fields = palworld_settings::parse_option_settings(&raw);
+    if palworld_settings::apply_ini_fields_to_config(&id, &mut cfg, &fields)? {
+        save_instance_config(&instance, &cfg)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn read_palworld_rest_settings(
+    id: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<palworld_settings::PalworldRestSettingsDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    let cfg = load_hydrated_config(&instance, &id)?;
+    let running = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.is_running(&id)
+    };
+    palworld_settings::read_rest_settings(&instance, running, &cfg.rest_username)
+}
+
+#[tauri::command]
+fn write_palworld_rest_settings(
+    id: String,
+    settings: palworld_settings::PalworldRestSettingsWriteDto,
+) -> Result<InstanceConfigDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    let mut cfg = load_hydrated_config(&instance, &id)?;
+    palworld_settings::write_rest_settings(&instance, &id, &mut cfg, &settings)?;
+    save_instance_config(&instance, &cfg)?;
+    Ok(to_dto(&cfg))
+}
+
+#[tauri::command]
+fn sync_palworld_from_ini(id: String) -> Result<InstanceConfigDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    if paths::detect_provider(&instance) != "palworld" {
+        return Err("not a palworld instance".into());
+    }
+    let mut cfg = config::load_instance_config(&instance);
+    if let Some(p) = secrets::get_rest_password(&id)? {
+        cfg.rest_password = p;
+    }
+    if let Some(t) = secrets::get_discord_token(&id)? {
+        cfg.discord.token = t;
+    }
+    if palworld_settings::sync_config_from_ini(&instance, &id, &mut cfg)? {
+        save_instance_config(&instance, &cfg)?;
+    }
+    let cfg = load_hydrated_config(&instance, &id)?;
+    Ok(to_dto(&cfg))
+}
+
+#[tauri::command]
+fn read_server_properties(id: String) -> Result<server_properties::ServerPropertiesDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    server_properties::read_properties(&instance)
+}
+
+#[tauri::command]
+fn write_server_properties(id: String, raw: String) -> Result<(), String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    server_properties::write_properties(&instance, &raw)
+}
+
+#[tauri::command]
+fn read_minecraft_rcon_settings(
+    id: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<minecraft_rcon_ops::MinecraftRconSettingsDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    let running = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.is_running(&id)
+    };
+    minecraft_rcon_ops::read_rcon_settings(&instance, running)
+}
+
+#[tauri::command]
+fn write_minecraft_rcon_settings(
+    id: String,
+    settings: minecraft_rcon_ops::MinecraftRconSettingsWriteDto,
+) -> Result<(), String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    minecraft_rcon_ops::write_rcon_settings(&instance, &settings)
+}
+
+#[tauri::command]
+fn sync_minecraft_rcon_from_properties(
+    id: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<minecraft_rcon_ops::MinecraftRconSettingsDto, String> {
+    let root = paths::app_root()?;
+    let instance = paths::instance_dir(&root, &id)?;
+    if !paths::is_minecraft_java(&instance) {
+        return Err("RCON sync requires a Minecraft Java server folder".into());
+    }
+    let running = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.is_running(&id)
+    };
+    minecraft_rcon_ops::read_rcon_settings(&instance, running)
+}
+
+#[tauri::command]
+fn minecraft_rcon_get_players(id: String) -> Result<Vec<serde_json::Value>, String> {
+    minecraft_rcon_ops::get_players(&id)
+}
+
+#[tauri::command]
+fn minecraft_rcon_get_info(id: String) -> Result<serde_json::Value, String> {
+    minecraft_rcon_ops::get_info(&id)
+}
+
+#[tauri::command]
+fn minecraft_rcon_get_metrics(id: String) -> Result<serde_json::Value, String> {
+    minecraft_rcon_ops::get_metrics(&id)
+}
+
+#[tauri::command]
+fn minecraft_rcon_announce(id: String, message: String) -> Result<(), String> {
+    minecraft_rcon_ops::announce(&id, &message)
+}
+
+#[tauri::command]
+fn minecraft_rcon_save(id: String) -> Result<(), String> {
+    minecraft_rcon_ops::save_world(&id)
+}
+
+#[tauri::command]
+fn minecraft_rcon_kick(id: String, player: String, message: String) -> Result<(), String> {
+    minecraft_rcon_ops::kick(&id, &player, &message)
+}
+
+#[tauri::command]
+fn minecraft_rcon_ban(id: String, player: String, message: String) -> Result<(), String> {
+    minecraft_rcon_ops::ban(&id, &player, &message)
+}
+
+#[tauri::command]
+fn minecraft_rcon_unban(id: String, player: String) -> Result<(), String> {
+    minecraft_rcon_ops::unban(&id, &player)
+}
+
+#[tauri::command]
+fn minecraft_rcon_command(id: String, command: String) -> Result<String, String> {
+    minecraft_rcon_ops::command(&id, &command)
+}
 fn spawn_servers_watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last_sig = String::new();
@@ -493,7 +806,33 @@ pub fn run() {
             rest_shutdown,
             rest_stop_api,
             dashboard_metrics,
-            save_parser_status
+            save_parser_status,
+            get_host_resources,
+            get_server_banner,
+            steamcmd_status,
+            ensure_steamcmd_cmd,
+            suggest_minecraft_type,
+            read_palworld_settings,
+            write_palworld_settings,
+            read_palworld_rest_settings,
+            write_palworld_rest_settings,
+            sync_palworld_from_ini,
+            read_server_properties,
+            write_server_properties,
+            read_minecraft_rcon_settings,
+            write_minecraft_rcon_settings,
+            sync_minecraft_rcon_from_properties,
+            minecraft_rcon_get_players,
+            minecraft_rcon_get_info,
+            minecraft_rcon_get_metrics,
+            minecraft_rcon_announce,
+            minecraft_rcon_save,
+            minecraft_rcon_kick,
+            minecraft_rcon_ban,
+            minecraft_rcon_unban,
+            minecraft_rcon_command,
+            list_running_server_ids,
+            shutdown_all_running_servers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -20,6 +20,17 @@ export type InstanceStatus = "running" | "stopped" | "unknown" | "installing";
 
 export type ProviderId = "palworld" | "minecraft" | "unknown";
 
+export type MinecraftServerType =
+  | "vanilla"
+  | "paper"
+  | "purpur"
+  | "fabric"
+  | "neoforge"
+  | "forge"
+  | "spigot"
+  | "other"
+  | "unknown";
+
 export interface ServerInstance {
   /** Servers 直下のフォルダ名 */
   id: string;
@@ -77,10 +88,10 @@ export const PALWORLD_CAPABILITIES: GameCapabilities = {
 
 export const MINECRAFT_CAPABILITIES: GameCapabilities = {
   console: true,
-  rcon: false,
-  playerList: false,
-  playerModeration: false,
-  metrics: false,
+  rcon: true,
+  playerList: true,
+  playerModeration: true,
+  metrics: true,
   backups: true,
   config: true,
   saveParser: false,

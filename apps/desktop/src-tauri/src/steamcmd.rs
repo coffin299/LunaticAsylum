@@ -6,6 +6,8 @@ use std::io::copy;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use zip::ZipArchive;
+
 /// Palworld Dedicated Server
 pub const PALWORLD_APP_ID: u32 = 2394010;
 
@@ -21,12 +23,32 @@ pub fn ensure_steamcmd(tools_dir: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(tools_dir).map_err(|e| e.to_string())?;
     download_steamcmd(tools_dir)?;
     if !exe.exists() {
-        return Err("steamcmd executable missing after install".into());
+        let found = list_dir_names(tools_dir);
+        return Err(format!(
+            "steamcmd executable missing after install (expected {}, found: {found:?})",
+            exe.display()
+        ));
     }
     Ok(exe)
 }
 
+fn list_dir_names(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn download_steamcmd(tools_dir: &Path) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let _ = tools_dir;
+        return Err("steamcmd bootstrap is Windows-only in this build".into());
+    }
+
     let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
     let zip_path = tools_dir.join("steamcmd.zip");
     let resp = ureq::get(url)
@@ -36,30 +58,59 @@ fn download_steamcmd(tools_dir: &Path) -> Result<(), String> {
     let mut file = File::create(&zip_path).map_err(|e| e.to_string())?;
     copy(&mut reader, &mut file).map_err(|e| e.to_string())?;
 
-    // PowerShell Expand-Archive（Windows）
-    #[cfg(windows)]
-    {
-        let status = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                    zip_path.display(),
-                    tools_dir.display()
-                ),
-            ])
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err("failed to extract steamcmd.zip".into());
+    let size = fs::metadata(&zip_path)
+        .map_err(|e| e.to_string())?
+        .len();
+    if size < 100_000 {
+        let _ = fs::remove_file(&zip_path);
+        return Err(format!("steamcmd download too small ({size} bytes)"));
+    }
+
+    extract_steamcmd_zip(&zip_path, tools_dir)?;
+    let _ = fs::remove_file(zip_path);
+    Ok(())
+}
+
+fn extract_steamcmd_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
+    let file = File::open(zip_path).map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("invalid steamcmd.zip: {e}"))?;
+
+    const MAX_FILES: usize = 100;
+    const MAX_UNCOMPRESSED: u64 = 50 * 1024 * 1024;
+
+    if archive.len() > MAX_FILES {
+        return Err("steamcmd.zip has too many entries".into());
+    }
+
+    let mut total_uncompressed: u64 = 0;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        total_uncompressed = total_uncompressed.saturating_add(entry.size());
+        if total_uncompressed > MAX_UNCOMPRESSED {
+            return Err("steamcmd.zip uncompressed size too large".into());
+        }
+        let rel = entry
+            .enclosed_name()
+            .ok_or_else(|| "steamcmd.zip entry path rejected".to_string())?;
+        for component in rel.components() {
+            if matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            ) {
+                return Err("steamcmd.zip entry path rejected".into());
+            }
+        }
+        let outpath = dest.join(rel);
+        if entry.is_dir() {
+            fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut outfile = File::create(&outpath).map_err(|e| e.to_string())?;
+            std::io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
         }
     }
-    #[cfg(not(windows))]
-    {
-        return Err("steamcmd bootstrap is Windows-only in this build".into());
-    }
-    let _ = fs::remove_file(zip_path);
     Ok(())
 }
 

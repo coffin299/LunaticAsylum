@@ -1,6 +1,7 @@
 //! CharacterSaveParameterMap.Value.RawData（oMaN-Rod character.py）
 
 use super::error::ParseStats;
+use super::location::find_transform_xyz;
 use super::properties::{encode_guid, CharacterRawData, FArchiveReader, PropertyValue};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -23,11 +24,13 @@ pub fn decode_bytes(bytes: &[u8], stats: &mut ParseStats) -> Result<CharacterRaw
     let group_id = reader.guid().unwrap_or([0u8; 16]);
     let trailing_bytes = reader.byte_list(4).unwrap_or_default();
     if !reader.eof() {
-        let _rest = reader.read_to_end();
-        stats.push(
-            "character_trailing",
-            format!("extra {} bytes preserved as opaque", _rest.len()),
-        );
+        let rest = reader.read_to_end();
+        if rest.len() > 256 {
+            stats.push(
+                "character_trailing",
+                format!("extra {} bytes preserved as opaque", rest.len()),
+            );
+        }
     }
     Ok(CharacterRawData {
         fields,
@@ -62,18 +65,7 @@ pub fn extract_characters(
     }
 
     for (key, value) in entries {
-        let key_id = match key {
-            PropertyValue::Guid(g) => encode_guid(g),
-            PropertyValue::Struct { fields, .. } => fields
-                .get("_guid")
-                .and_then(|v| match v {
-                    PropertyValue::Guid(g) => Some(encode_guid(g)),
-                    PropertyValue::Str(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| "unknown".into()),
-            _ => "unknown".into(),
-        };
+        let key_id = map_key_id(key);
 
         let raw = match value {
             PropertyValue::Struct { fields, .. } => fields.get("RawData"),
@@ -156,53 +148,18 @@ fn summarize_character(fields: &BTreeMap<String, PropertyValue>) -> CharacterSum
         owner: find_guid_str(sp, "OwnerPlayerUId")
             .or_else(|| find_guid_str(sp, "OwnerPlayerUid"))
             .unwrap_or_default(),
-        location: find_location(sp),
+        location: find_transform_xyz(sp),
     }
 }
 
-/// あるときだけ返す。フィールドが無ければ None（捏造しない）。
-fn find_location(fields: &BTreeMap<String, PropertyValue>) -> Option<(f64, f64, f64)> {
-    for name in ["Location", "Transform", "LastTransform"] {
-        if let Some(xyz) = xyz_from_value(fields.get(name)?) {
-            return Some(xyz);
-        }
-    }
-    None
-}
-
-fn xyz_from_value(value: &PropertyValue) -> Option<(f64, f64, f64)> {
-    match value {
-        PropertyValue::Struct { struct_type, fields } => {
-            if struct_type == "Vector" || struct_type == "Vector3d" {
-                return xyz_from_fields(fields);
-            }
-            if let Some(xyz) = xyz_from_fields(fields) {
-                return Some(xyz);
-            }
-            fields
-                .get("translation")
-                .or_else(|| fields.get("Translation"))
-                .and_then(xyz_from_value)
-        }
-        _ => None,
-    }
-}
-
-fn xyz_from_fields(fields: &BTreeMap<String, PropertyValue>) -> Option<(f64, f64, f64)> {
-    Some((
-        as_f64(fields.get("x")?)?,
-        as_f64(fields.get("y")?)?,
-        as_f64(fields.get("z")?)?,
-    ))
-}
-
-fn as_f64(value: &PropertyValue) -> Option<f64> {
-    match value {
-        PropertyValue::Double(v) => Some(*v),
-        PropertyValue::Float(v) => Some(*v as f64),
-        PropertyValue::Int(v) => Some(*v as f64),
-        PropertyValue::Int64(v) => Some(*v as f64),
-        _ => None,
+fn map_key_id(key: &PropertyValue) -> String {
+    match key {
+        PropertyValue::Guid(g) => encode_guid(g),
+        PropertyValue::Struct { fields, .. } => find_guid_str(fields, "PlayerUId")
+            .or_else(|| find_guid_str(fields, "InstanceId"))
+            .or_else(|| find_guid_str(fields, "_guid"))
+            .unwrap_or_else(|| "unknown".into()),
+        _ => "unknown".into(),
     }
 }
 

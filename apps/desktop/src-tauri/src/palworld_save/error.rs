@@ -8,16 +8,23 @@ pub struct ParseDiag {
     pub message: String,
 }
 
+const MAX_DIAGS: usize = 64;
+
 #[derive(Debug, Default, Clone)]
 pub struct ParseStats {
     pub skipped_properties: u64,
     pub unsupported_types: u64,
     pub subsection_failures: u64,
     pub diags: Vec<ParseDiag>,
+    pub diag_overflow: u64,
 }
 
 impl ParseStats {
     pub fn push(&mut self, code: impl Into<String>, message: impl Into<String>) {
+        if self.diags.len() >= MAX_DIAGS {
+            self.diag_overflow += 1;
+            return;
+        }
         self.diags.push(ParseDiag {
             code: code.into(),
             message: message.into(),

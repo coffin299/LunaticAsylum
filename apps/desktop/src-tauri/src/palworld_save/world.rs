@@ -42,18 +42,25 @@ pub struct DiagDto {
 
 impl From<&ParseStats> for StatsDto {
     fn from(s: &ParseStats) -> Self {
+        let mut diags: Vec<DiagDto> = s
+            .diags
+            .iter()
+            .map(|d| DiagDto {
+                code: d.code.clone(),
+                message: d.message.clone(),
+            })
+            .collect();
+        if s.diag_overflow > 0 {
+            diags.push(DiagDto {
+                code: "diag_truncated".into(),
+                message: format!("additional {} diagnostics omitted", s.diag_overflow),
+            });
+        }
         Self {
             skipped_properties: s.skipped_properties,
             unsupported_types: s.unsupported_types,
             subsection_failures: s.subsection_failures,
-            diags: s
-                .diags
-                .iter()
-                .map(|d| DiagDto {
-                    code: d.code.clone(),
-                    message: d.message.clone(),
-                })
-                .collect(),
+            diags,
         }
     }
 }
@@ -98,4 +105,49 @@ pub fn parse_level_sav_bytes(data: &[u8]) -> Result<WorldParseResult, ParseError
         stats: StatsDto::from(&stats),
         message,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_level_sav_bytes;
+    use std::fs;
+
+    #[test]
+    fn e2e_level_sav_from_env() {
+        let Ok(path) = std::env::var("LUNATIC_ASYLUM_LEVEL_SAV") else {
+            return;
+        };
+        let bytes = fs::read(&path).expect("read Level.sav");
+        let r = parse_level_sav_bytes(&bytes).expect("parse Level.sav");
+        assert!(
+            r.players.len() >= 1,
+            "expected players, got {} diags={:?}",
+            r.players.len(),
+            r.stats.diags
+        );
+        assert!(
+            r.players.iter().all(|p| p.get("key").and_then(|v| v.as_str()) != Some("unknown")),
+            "player keys should not be unknown: {:?}",
+            r.players
+        );
+        let mismatch = r
+            .stats
+            .diags
+            .iter()
+            .filter(|d| d.code == "size_mismatch")
+            .count();
+        assert_eq!(mismatch, 0, "size_mismatch should be gone");
+        eprintln!("{}", r.message);
+        eprintln!(
+            "guilds={} bases={} skipped={} failures={} diags={}",
+            r.guilds.len(),
+            r.bases.len(),
+            r.stats.skipped_properties,
+            r.stats.subsection_failures,
+            r.stats.diags.len()
+        );
+        for d in &r.stats.diags {
+            eprintln!("{}: {}", d.code, d.message);
+        }
+    }
 }

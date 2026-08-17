@@ -84,8 +84,14 @@ impl AppState {
     pub fn stop_intentional(&mut self, id: &str) -> Result<(), String> {
         self.intentional_stop.insert(id.to_string());
         if let Some(mut child) = self.children.remove(id) {
-            let _ = child.kill();
+            let pid = child.id();
+            crate::process::kill_process_tree(pid)?;
             let _ = child.wait();
+        } else if let Some(root) = &self.root {
+            let instance = root.join("Servers").join(id);
+            if instance.is_dir() {
+                let _ = crate::process::kill_palworld_under_instance(&instance);
+            }
         }
         Ok(())
     }

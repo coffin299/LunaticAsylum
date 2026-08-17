@@ -40,5 +40,7 @@ SteamCMD     → install / app_update のみ（Build ID 取得には使わない
 ## Save parse（Palworld）
 
 decode-only。実装は `apps/desktop/src-tauri/src/palworld_save/`（Palhelm 方針・Core 外）。  
-PlZ→GVAS→Character/Group/BaseCamp RawData まで接続。  
+PlZ/PlM→GVAS→Character/Group/BaseCamp RawData まで接続。  
+プレイヤー座標は **Players/*.sav** の `SaveData.LastTransform`（`*_dps.sav` は除外）。Level.sav の SaveParameter には通常無い。  
+`MapObjectSaveData` 等の巨大 Array/Map は UE の `size`（ペイロードのみ）でスキップし、その後ろの Group/BaseCamp を読む。GUID はプレイヤーファイル名と同じ mixed-endian 表記。  
 PlM は Oodle（`oo2core`、同梱しない）。初回解析でピン留め成果物を `data/` に取得するか、`LUNATIC_ASYLUM_OODLE_LIB` で絶対パス指定。

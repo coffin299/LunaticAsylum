@@ -646,23 +646,29 @@ impl Handler {
 
         let msg = match action {
             PendingAction::Stop { instance_id, .. } => {
-                if let Ok(mut g) = app_state.lock() {
-                    let _ = g.stop_intentional(&instance_id);
-                }
-                match rest.stop() {
-                    Ok(()) => "強制停止を実行しました。".to_string(),
-                    Err(e) => format!("失敗しました: {e}"),
+                if let Err(e) = rest.stop() {
+                    if let Ok(mut g) = app_state.lock() {
+                        let _ = g.stop_intentional(&instance_id);
+                    }
+                    format!("REST 失敗、プロセス終了を試行: {e}")
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Ok(mut g) = app_state.lock() {
+                        match g.stop_intentional(&instance_id) {
+                            Ok(()) => "停止しました。".to_string(),
+                            Err(e) => format!("REST 停止後のプロセス終了に失敗: {e}"),
+                        }
+                    } else {
+                        "停止を要求しました。".to_string()
+                    }
                 }
             }
             PendingAction::Shutdown {
-                instance_id,
+                instance_id: _,
                 waittime,
                 message,
                 ..
             } => {
-                if let Ok(mut g) = app_state.lock() {
-                    let _ = g.stop_intentional(&instance_id);
-                }
                 match rest.shutdown(waittime, &message) {
                     Ok(()) => {
                         format!("シャットダウンを開始しました（{waittime} 秒 / {message}）。")

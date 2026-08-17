@@ -20,6 +20,10 @@ pub struct GvasFile {
     pub header: GvasHeader,
     pub root_keys: Vec<String>,
     pub world_save_data: Option<PropertyValue>,
+    /// Players/*.sav の SaveData
+    pub save_data: Option<PropertyValue>,
+    /// Players/*.sav ルートの PlayerUId（あれば）
+    pub player_uid: Option<PropertyValue>,
     pub stats: ParseStats,
 }
 
@@ -72,6 +76,8 @@ pub fn read_gvas(data: &[u8]) -> Result<GvasFile, ParseError> {
 
     let mut root_keys = Vec::new();
     let mut world_save_data = None;
+    let mut save_data = None;
+    let mut player_uid = None;
 
     loop {
         let name = match reader.fstring() {
@@ -91,6 +97,10 @@ pub fn read_gvas(data: &[u8]) -> Result<GvasFile, ParseError> {
             Ok(val) => {
                 if name == "worldSaveData" {
                     world_save_data = Some(val);
+                } else if name == "SaveData" {
+                    save_data = Some(val);
+                } else if name == "PlayerUId" {
+                    player_uid = Some(val);
                 }
             }
             Err(e) => {
@@ -105,6 +115,8 @@ pub fn read_gvas(data: &[u8]) -> Result<GvasFile, ParseError> {
         header,
         root_keys,
         world_save_data,
+        save_data,
+        player_uid,
         stats,
     })
 }

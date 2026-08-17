@@ -4,6 +4,7 @@ mod discord;
 mod palworld_rest;
 mod palworld_save;
 mod paths;
+mod process;
 mod rest_ops;
 mod save_parser;
 mod scheduler;
@@ -110,6 +111,22 @@ fn start_server(id: String, state: State<'_, Arc<Mutex<AppState>>>) -> Result<()
 }
 #[tauri::command]
 fn stop_server(id: String, state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), String> {
+    let root = paths::app_root()?;
+    let had_child = {
+        let mut g = state.lock().map_err(|e| e.to_string())?;
+        g.root = Some(root);
+        g.pid_of(&id).is_some()
+    };
+    if had_child {
+        let _ = rest_ops::stop(&id);
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let mut g = state.lock().map_err(|e| e.to_string())?;
+            if !g.is_running(&id) {
+                break;
+            }
+        }
+    }
     let mut g = state.lock().map_err(|e| e.to_string())?;
     g.stop_intentional(&id)
 }

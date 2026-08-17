@@ -49,8 +49,13 @@ pub struct CharacterRawData {
     pub trailing_bytes: Vec<u8>,
 }
 
+/// Palworld / UE FGuid のファイル名形式（先頭3フィールドは LE）。
 pub fn encode_guid(g: &[u8; 16]) -> String {
-    g.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        g[3], g[2], g[1], g[0], g[5], g[4], g[7], g[6],
+        g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15]
+    )
 }
 
 pub struct FArchiveReader<'a> {
@@ -95,10 +100,10 @@ impl<'a> FArchiveReader<'a> {
         }
     }
 
-    pub fn skip(&mut self, n: usize) -> Result<(), ParseError> {
-        self.need(n)?;
-        self.pos += n;
-        Ok(())
+    /// UE の size は型ヘッダ（FString / optional GUID）を含まない。ペイロード末尾へ必ず合わせる。
+    fn align_payload(&mut self, payload_start: usize, size: u64) {
+        let end = payload_start.saturating_add(size as usize).min(self.data.len());
+        self.pos = end;
     }
 
     pub fn byte_list(&mut self, n: usize) -> Result<Vec<u8>, ParseError> {
@@ -251,39 +256,7 @@ impl<'a> FArchiveReader<'a> {
     ) -> Result<PropertyValue, ParseError> {
         let type_name = self.fstring()?;
         let size = self.u64()?;
-        let start = self.pos;
-        let result = self.read_typed(&type_name, size, path, stats);
-        let end_expected = start.saturating_add(size as usize).min(self.data.len());
-        match &result {
-            Ok(PropertyValue::Opaque { .. }) | Ok(PropertyValue::Map { opaque: true, .. }) => {
-                if self.pos < end_expected {
-                    let _ = self.skip(end_expected - self.pos);
-                } else if self.pos > end_expected {
-                    stats.push(
-                        "over_read",
-                        format!("{type_name}@{path}: pos {} > {end_expected}", self.pos),
-                    );
-                    self.pos = end_expected;
-                }
-            }
-            Ok(_) => {
-                // ArrayType / optional_guid が size 外のことがあるため巻き戻さない
-                if self.pos < end_expected {
-                    let _ = self.skip(end_expected - self.pos);
-                } else if self.pos > end_expected {
-                    stats.push(
-                        "size_mismatch",
-                        format!("{type_name}@{path}: read {} > size {size}", self.pos - start),
-                    );
-                }
-            }
-            Err(_) => {
-                if self.pos < end_expected {
-                    let _ = self.skip(end_expected - self.pos);
-                }
-            }
-        }
-        result
+        self.read_typed(&type_name, size, path, stats)
     }
 
     pub fn properties_until_end(
@@ -344,70 +317,105 @@ impl<'a> FArchiveReader<'a> {
             }
             "IntProperty" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Int(self.i32()?))
+                let start = self.pos;
+                let v = self.i32()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Int(v))
             }
             "Int64Property" | "UInt64Property" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Int64(self.i64()?))
+                let start = self.pos;
+                let v = self.i64()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Int64(v))
             }
             "UInt32Property" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Int(self.u32()? as i32))
+                let start = self.pos;
+                let v = self.u32()? as i32;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Int(v))
             }
             "UInt16Property" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Int(self.u16()? as i32))
+                let start = self.pos;
+                let v = self.u16()? as i32;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Int(v))
             }
             "FloatProperty" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Float(self.f32()?))
+                let start = self.pos;
+                let v = self.f32()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Float(v))
             }
             "DoubleProperty" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Double(self.f64()?))
+                let start = self.pos;
+                let v = self.f64()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Double(v))
             }
             "StrProperty" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Str(self.fstring()?))
+                let start = self.pos;
+                let v = self.fstring()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Str(v))
             }
             "NameProperty" => {
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Name(self.fstring()?))
+                let start = self.pos;
+                let v = self.fstring()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Name(v))
             }
             "ByteProperty" => {
                 let enum_name = self.fstring()?;
                 let _ = self.optional_guid()?;
-                if enum_name == "None" {
-                    let b = self.u8()?;
-                    Ok(PropertyValue::Byte {
+                let start = self.pos;
+                let value = if enum_name == "None" {
+                    PropertyValue::Byte {
                         enum_name,
-                        value: b.to_string(),
-                    })
+                        value: self.u8()?.to_string(),
+                    }
                 } else {
-                    let value = self.fstring()?;
-                    Ok(PropertyValue::Byte { enum_name, value })
-                }
+                    PropertyValue::Byte {
+                        enum_name,
+                        value: self.fstring()?,
+                    }
+                };
+                self.align_payload(start, size);
+                Ok(value)
             }
             "EnumProperty" => {
                 let _enum_type = self.fstring()?;
                 let _ = self.optional_guid()?;
-                Ok(PropertyValue::Name(self.fstring()?))
+                let start = self.pos;
+                let v = self.fstring()?;
+                self.align_payload(start, size);
+                Ok(PropertyValue::Name(v))
             }
             "StructProperty" => {
                 let struct_type = self.fstring()?;
                 let _struct_id = self.guid()?;
                 let _ = self.optional_guid()?;
+                let start = self.pos;
                 let fields = self.read_struct_value(&struct_type, path, stats)?;
+                self.align_payload(start, size);
                 Ok(PropertyValue::Struct {
                     struct_type,
                     fields,
                 })
             }
             "ArrayProperty" => self.read_array(size, path, stats),
-            "MapProperty" => self.read_map(path, stats),
+            "MapProperty" => self.read_map(size, path, stats),
             "SetProperty" => {
                 stats.unsupported_types += 1;
                 stats.skipped_properties += 1;
+                let start = self.pos;
+                self.align_payload(start, size);
                 Ok(PropertyValue::Opaque {
                     type_name: type_name.into(),
                     size,
@@ -416,6 +424,8 @@ impl<'a> FArchiveReader<'a> {
             other => {
                 stats.unsupported_types += 1;
                 stats.skipped_properties += 1;
+                let start = self.pos;
+                self.align_payload(start, size);
                 Ok(PropertyValue::Opaque {
                     type_name: other.into(),
                     size,
@@ -477,46 +487,49 @@ impl<'a> FArchiveReader<'a> {
     ) -> Result<PropertyValue, ParseError> {
         let inner = self.fstring()?;
         let _ = self.optional_guid()?;
+        let start = self.pos;
+
+        let skip_payload = |this: &mut Self, stats: &mut ParseStats, inner: String| {
+            stats.skipped_properties += 1;
+            this.align_payload(start, size);
+            PropertyValue::Array {
+                inner_type: inner,
+                values: vec![],
+            }
+        };
+
+        if inner == "StructProperty" && !type_hints::is_character_rawdata(path) {
+            return Ok(skip_payload(self, stats, inner));
+        }
+
         let count = self.u32()? as i32;
         if count < 0 || count > 50_000_000 {
             stats.unsupported_types += 1;
+            self.align_payload(start, size);
             return Ok(PropertyValue::Opaque {
                 type_name: "ArrayProperty".into(),
                 size,
             });
         }
 
-        // RawData: Byte 配列 → 生バイト（Character は上位で decode）
         if inner == "ByteProperty" {
-            let payload_size = size.saturating_sub(4); // count 分を除く概算
+            let payload_size = size.saturating_sub(4);
             if payload_size == count as u64 || count as u64 == size.saturating_sub(4) {
                 let bytes = self.byte_list(count as usize)?;
-                if type_hints::is_character_rawdata(path) {
-                    return Ok(super::character::decode_rawdata_property(&bytes, stats));
-                }
-                if type_hints::is_basecamp_rawdata(path) {
-                    return Ok(super::base::decode_rawdata_property(&bytes, stats));
-                }
-                return Ok(PropertyValue::Bytes(bytes));
+                let value = if type_hints::is_character_rawdata(path) {
+                    super::character::decode_rawdata_property(&bytes, stats)
+                } else if type_hints::is_basecamp_rawdata(path) {
+                    super::base::decode_rawdata_property(&bytes, stats)
+                } else {
+                    PropertyValue::Bytes(bytes)
+                };
+                self.align_payload(start, size);
+                return Ok(value);
             }
         }
 
-        if inner == "StructProperty" {
-            stats.skipped_properties += 1;
-            stats.push("array_struct", format!("opaque StructProperty array @ {path}"));
-            return Ok(PropertyValue::Array {
-                inner_type: inner,
-                values: vec![],
-            });
-        }
-
-        // 巨大非 RawData 配列は opaque skip
-        if count > 20_000 {
-            stats.skipped_properties += 1;
-            return Ok(PropertyValue::Array {
-                inner_type: inner,
-                values: vec![],
-            });
+        if inner == "StructProperty" || count > 20_000 {
+            return Ok(skip_payload(self, stats, inner));
         }
 
         let mut values = Vec::with_capacity(count as usize);
@@ -536,6 +549,7 @@ impl<'a> FArchiveReader<'a> {
                 }
             }
         }
+        self.align_payload(start, size);
         Ok(PropertyValue::Array {
             inner_type: inner,
             values,
@@ -544,21 +558,25 @@ impl<'a> FArchiveReader<'a> {
 
     fn read_map(
         &mut self,
+        size: u64,
         path: &str,
         stats: &mut ParseStats,
     ) -> Result<PropertyValue, ParseError> {
         let key_type = self.fstring()?;
         let value_type = self.fstring()?;
         let _ = self.optional_guid()?;
+        let start = self.pos;
         let _unknown = self.u32()?;
         let count = self.u32()? as i32;
         if count < 0 || count > 5_000_000 {
+            self.align_payload(start, size);
             return Err(ParseError::Format(format!("map count {count} @ {path}")));
         }
 
         let expand = type_hints::should_expand_map(path);
         if !expand {
             stats.skipped_properties += 1;
+            self.align_payload(start, size);
             return Ok(PropertyValue::Map {
                 key_type,
                 value_type,
@@ -568,9 +586,12 @@ impl<'a> FArchiveReader<'a> {
             });
         }
 
-        // GroupSaveDataMap は専用デコード（Value 内 GroupType + RawData）
         if path.ends_with("GroupSaveDataMap") {
-            return super::group::decode_map_entries(self, count, &key_type, &value_type, path, stats);
+            let map = super::group::decode_map_entries(
+                self, count, &key_type, &value_type, path, stats,
+            )?;
+            self.align_payload(start, size);
+            return Ok(map);
         }
 
         let key_path = format!("{path}.Key");
@@ -592,6 +613,7 @@ impl<'a> FArchiveReader<'a> {
             let value = self.prop_value(&value_type, value_struct, &value_path, stats)?;
             entries.push((key, value));
         }
+        self.align_payload(start, size);
         Ok(PropertyValue::Map {
             key_type,
             value_type,
@@ -639,5 +661,58 @@ impl<'a> FArchiveReader<'a> {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_guid;
+
+    #[test]
+    fn encode_guid_matches_player_filename() {
+        let g = [
+            0x07, 0xa3, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(encode_guid(&g), "c0ffa307000000000000000000000000");
+    }
+
+    #[test]
+    fn align_payload_skips_struct_array() {
+        use super::{FArchiveReader, PropertyValue};
+        use crate::palworld_save::error::ParseStats;
+
+        fn write_fstring(buf: &mut Vec<u8>, s: &str) {
+            let bytes = s.as_bytes();
+            let len = (bytes.len() + 1) as i32;
+            buf.extend_from_slice(&len.to_le_bytes());
+            buf.extend_from_slice(bytes);
+            buf.push(0);
+        }
+
+        let mut buf = Vec::new();
+        write_fstring(&mut buf, "Junk");
+        write_fstring(&mut buf, "ArrayProperty");
+        let size_pos = buf.len();
+        buf.extend_from_slice(&0u64.to_le_bytes());
+        write_fstring(&mut buf, "StructProperty");
+        buf.push(0);
+        let payload_start = buf.len();
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&[0u8; 16]);
+        let size = (buf.len() - payload_start) as u64;
+        buf[size_pos..size_pos + 8].copy_from_slice(&size.to_le_bytes());
+        write_fstring(&mut buf, "None");
+
+        let mut reader = FArchiveReader::new(&buf);
+        let mut stats = ParseStats::default();
+        let fields = reader.properties_until_end("", &mut stats);
+        assert!(fields.contains_key("Junk"));
+        match fields.get("Junk") {
+            Some(PropertyValue::Array { values, .. }) => assert!(values.is_empty()),
+            other => panic!("expected skipped array, got {other:?}"),
+        }
+        assert!(reader.eof());
+        assert_eq!(stats.diags.iter().filter(|d| d.code == "size_mismatch").count(), 0);
     }
 }

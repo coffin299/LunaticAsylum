@@ -245,9 +245,13 @@ fn try_gvas_parse(level_path: &Path) -> GvasParseOut {
     }
 }
 
-fn player_markers_from(players: &[serde_json::Value]) -> Vec<MapMarkerDto> {
-    let mut out = Vec::new();
-    for p in players {
+fn player_markers_from(
+    parsed_players: &[serde_json::Value],
+    players_dir: &Path,
+) -> Vec<MapMarkerDto> {
+    let mut by_id: std::collections::BTreeMap<String, MapMarkerDto> = std::collections::BTreeMap::new();
+
+    for p in parsed_players {
         let x = p.get("x").and_then(|v| v.as_f64());
         let y = p.get("y").and_then(|v| v.as_f64());
         let (Some(x), Some(y)) = (x, y) else {
@@ -264,9 +268,84 @@ fn player_markers_from(players: &[serde_json::Value]) -> Vec<MapMarkerDto> {
             .filter(|s| !s.is_empty())
             .unwrap_or(&id)
             .to_string();
-        out.push(MapMarkerDto { id, label, x, y });
+        by_id.insert(id.clone(), MapMarkerDto { id, label, x, y });
     }
-    out
+
+    if let Ok(rd) = fs::read_dir(players_dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if !is_player_sav_file(&p) {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&p) else {
+                continue;
+            };
+            let Ok(loc) = palworld_save::parse_player_sav_bytes(&bytes) else {
+                continue;
+            };
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("player")
+                .to_string();
+            let id = if loc.player_uid.is_empty() {
+                stem.clone()
+            } else {
+                loc.player_uid.clone()
+            };
+            let label = parsed_players
+                .iter()
+                .find(|pl| {
+                    pl.get("key")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|k| keys_match(k, &id) || keys_match(k, &stem))
+                })
+                .and_then(|pl| pl.get("nickname").and_then(|v| v.as_str()))
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&stem)
+                .to_string();
+            by_id.insert(
+                id.clone(),
+                MapMarkerDto {
+                    id,
+                    label,
+                    x: loc.x,
+                    y: loc.y,
+                },
+            );
+        }
+    }
+
+    by_id.into_values().collect()
+}
+
+fn is_player_sav_file(path: &Path) -> bool {
+    if path.extension().and_then(|x| x.to_str()) != Some("sav") {
+        return false;
+    }
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    !name.ends_with("_dps.sav")
+}
+
+fn keys_match(a: &str, b: &str) -> bool {
+    let na = a.replace('-', "").to_ascii_lowercase();
+    let nb = b.replace('-', "").to_ascii_lowercase();
+    na == nb
+}
+
+fn map_hints_note(player_markers: &[MapMarkerDto], base_markers: &[MapMarkerDto]) -> String {
+    match (!player_markers.is_empty(), !base_markers.is_empty()) {
+        (false, false) => {
+            "座標未検出。Players/*.sav の SaveData.LastTransform または Level.sav の拠点 transform が必要です（PlM/Oodle 失敗時は players/guilds も空になります）。"
+                .into()
+        }
+        (false, true) => "拠点 transform からマーカー生成。プレイヤー座標は Players/*.sav の LastTransform から取得できませんでした。".into(),
+        (true, false) => "Players/*.sav の LastTransform（または Level.sav Location）からプレイヤーマーカー生成。".into(),
+        (true, true) => "Players/*.sav LastTransform + 拠点 transform からマーカー生成。".into(),
+    }
 }
 
 fn base_markers_from(bases: &[serde_json::Value]) -> Vec<MapMarkerDto> {
@@ -339,7 +418,7 @@ pub fn parse_instance_save(instance: &Path) -> SaveParseDto {
     if let Ok(rd) = fs::read_dir(&players_dir) {
         for e in rd.flatten() {
             let p = e.path();
-            if p.extension().and_then(|x| x.to_str()) != Some("sav") {
+            if !is_player_sav_file(&p) {
                 continue;
             }
             let meta = fs::metadata(&p).ok();
@@ -353,7 +432,7 @@ pub fn parse_instance_save(instance: &Path) -> SaveParseDto {
     players.sort_by(|a, b| a.file_name.cmp(&b.file_name));
 
     let parsed = try_gvas_parse(&level_path);
-    let player_markers = player_markers_from(&parsed.parsed_players);
+    let player_markers = player_markers_from(&parsed.parsed_players, &players_dir);
     let base_markers = base_markers_from(&parsed.bases);
 
     let magic_ok = level
@@ -408,12 +487,7 @@ pub fn parse_instance_save(instance: &Path) -> SaveParseDto {
             guilds: parsed.guilds,
             bases: parsed.bases,
             map_hints: MapHintsDto {
-                note: match (player_markers.is_empty(), base_markers.is_empty()) {
-                    (false, false) => "プレイヤー Location / 拠点 transform からマーカー生成。".into(),
-                    (false, true) => "プレイヤー Location からマーカー生成。".into(),
-                    (true, false) => "拠点 transform からマーカー生成。プレイヤー座標は未検出。".into(),
-                    (true, true) => "座標フィールド未検出（PlM/Oodle または Location 欠落）。".into(),
-                },
+                note: map_hints_note(&player_markers, &base_markers),
                 player_markers,
                 base_markers,
             },
